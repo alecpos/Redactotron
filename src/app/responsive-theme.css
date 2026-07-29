@@ -16,6 +16,17 @@
   --rt-title-size: 32px;
   --rt-body-size: 16px;
   --rt-label-size: 14px;
+  --rt-button-padding-x: 22px;
+  --rt-card-padding: 40px;
+  --rt-card-gap: 18px;
+  --rt-preview-padding-x: 52px;
+  --rt-preview-padding-y: 56px;
+  --rt-preview-gap: 18px;
+  --rt-queue-padding-x: 12px;
+  --rt-queue-padding-y: 10px;
+  --rt-queue-gap: 10px;
+  --rt-dialog-padding: 40px;
+  --rt-dialog-max: 600px;
   min-height: 100vh;
 }
 
@@ -31,6 +42,17 @@
   --rt-title-size: 28px;
   --rt-body-size: 15px;
   --rt-label-size: 13px;
+  --rt-button-padding-x: 18px;
+  --rt-card-padding: 32px;
+  --rt-card-gap: 16px;
+  --rt-preview-padding-x: 40px;
+  --rt-preview-padding-y: 44px;
+  --rt-preview-gap: 15px;
+  --rt-queue-padding-x: 12px;
+  --rt-queue-padding-y: 10px;
+  --rt-queue-gap: 10px;
+  --rt-dialog-padding: 32px;
+  --rt-dialog-max: 520px;
 }
 
 .redactotron-theme[data-layout="small"],
@@ -45,11 +67,22 @@
   --rt-title-size: 24px;
   --rt-body-size: 14px;
   --rt-label-size: 12px;
+  --rt-button-padding-x: 16px;
+  --rt-card-padding: 24px;
+  --rt-card-gap: 14px;
+  --rt-preview-padding-x: 28px;
+  --rt-preview-padding-y: 32px;
+  --rt-preview-gap: 12px;
+  --rt-queue-padding-x: 14px;
+  --rt-queue-padding-y: 12px;
+  --rt-queue-gap: 12px;
+  --rt-dialog-padding: 24px;
+  --rt-dialog-max: 358px;
 }
 
 .redactotron-theme .button {
   min-height: var(--rt-control-height);
-  padding-inline: calc(var(--rt-control-gap) * 1.5);
+  padding-inline: var(--rt-button-padding-x);
   font-size: var(--rt-label-size);
 }
 
@@ -64,7 +97,36 @@
 }
 
 .redactotron-theme .upload-card {
-  padding: var(--rt-section-gap) var(--rt-screen-gutter);
+  width: 100%;
+  min-width: 0;
+  padding: var(--rt-card-padding);
+}
+
+.redactotron-theme .upload-button,
+.redactotron-theme .dialog-actions .button {
+  width: 100%;
+  min-width: 0;
+}
+
+.redactotron-theme .editor-header {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--rt-control-gap);
+}
+
+.redactotron-theme .file-summary,
+.redactotron-theme .file-summary > div {
+  width: 100%;
+  min-width: 0;
+}
+
+.redactotron-theme .dialog-backdrop {
+  padding: var(--rt-screen-gutter);
+}
+
+.redactotron-theme .dialog {
+  width: 100%;
+  max-width: var(--rt-dialog-max);
+  padding: var(--rt-dialog-padding);
 }
 
 .redactotron-theme .editor-body {
@@ -102,7 +164,6 @@
 
 .redactotron-theme[data-layout="small"] .upload-card {
   min-height: 324px;
-  padding: 24px;
 }
 
 .redactotron-theme[data-layout="small"] .editor-body {
