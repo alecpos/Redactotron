@@ -122,6 +122,71 @@ class RedactionEngineTests(unittest.TestCase):
         with self.assertRaisesRegex(RedactionError, "too small"):
             redact_pdf_bytes(source, manifest)
 
+    def test_rotated_page_and_rotated_text_receive_searchable_labels(self):
+        document = pymupdf.open()
+        rotated_page = document.new_page(width=612, height=792)
+        rotated_page.insert_text(
+            (72, 108), "Rotated page 123-45-6789", fontsize=12
+        )
+        rotated_page_target = pdf_rect(
+            rotated_page, rotated_page.search_for("123-45-6789")[0]
+        )
+        rotated_page.set_rotation(90)
+
+        rotated_text_page = document.new_page(width=612, height=792)
+        rotated_text_page.insert_text(
+            (120, 700),
+            "jane.doe@example.com",
+            fontsize=12,
+            rotate=90,
+        )
+        rotated_text_target = pdf_rect(
+            rotated_text_page,
+            rotated_text_page.search_for("jane.doe@example.com")[0],
+        )
+        source = document.tobytes()
+        document.close()
+
+        manifest = {
+            "blocks": [
+                block("rotated-page", 0, [rotated_page_target]),
+                block("rotated-text", 1, [rotated_text_target]),
+            ]
+        }
+        output = redact_pdf_bytes(source, manifest)
+
+        with pymupdf.open(stream=output, filetype="pdf") as result:
+            text = "\n".join(page.get_text("text") for page in result)
+            self.assertNotIn("123-45-6789", text)
+            self.assertNotIn("jane.doe@example.com", text)
+            self.assertEqual(text.count(REPLACEMENT), 2)
+
+    def test_export_scrubs_annotations_links_attachments_and_metadata(self):
+        source, targets = self.make_resume()
+        with pymupdf.open(stream=source, filetype="pdf") as document:
+            page = document[0]
+            annotation = page.add_text_annot((500, 100), "private note")
+            annotation.update()
+            page.insert_link(
+                {
+                    "kind": pymupdf.LINK_URI,
+                    "from": pymupdf.Rect(72, 300, 200, 320),
+                    "uri": "https://example.com/?private=value",
+                }
+            )
+            document.embfile_add("private.txt", b"private attachment")
+            source = document.tobytes()
+
+        output = redact_pdf_bytes(
+            source, {"blocks": [block("first", 0, [targets[0]])]}
+        )
+
+        with pymupdf.open(stream=output, filetype="pdf") as result:
+            self.assertEqual(result.embfile_names(), [])
+            self.assertIsNone(result[0].first_annot)
+            self.assertEqual(result[0].get_links(), [])
+            self.assertEqual(result.metadata.get("author"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

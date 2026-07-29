@@ -12,6 +12,11 @@ export type RedactionBlock = {
   labelRectIndex: number;
   replacement: "REDACTED";
   appearance: "text-replacement";
+  suggestion?: {
+    category: string;
+    confidence: number;
+    source: "recognizer" | "model";
+  };
 };
 
 export type ToolMode = "text" | "area";

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
   type DragEvent,
@@ -16,6 +17,7 @@ import {
   LockIcon,
   RedoIcon,
   ShieldIcon,
+  SparkIcon,
   TextSelectIcon,
   TrashIcon,
   UndoIcon,
@@ -31,6 +33,7 @@ import type {
   ToolMode,
 } from "@/lib/pdf/types";
 import { redactionManifestSchema } from "@/lib/pdf/redaction-schema";
+import { mergeSuggestionBlocks } from "@/lib/pii/suggestions";
 
 const MAX_FILE_BYTES = 4_000_000;
 const MAX_PAGES = 100;
@@ -62,24 +65,37 @@ export function PdfRedactor() {
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [pageTextStatus, setPageTextStatus] = useState<
     Record<number, boolean>
   >({});
+  const blocksRef = useRef<RedactionBlock[]>([]);
+  const documentRef = useRef<PDFDocumentProxy | null>(null);
+  const scanGenerationRef = useRef(0);
+  const scanningRef = useRef(false);
 
   const commitBlocks = useCallback(
     (next: RedactionBlock[]) => {
-      setPast((history) => [...history.slice(-49), blocks]);
+      setPast((history) => [...history.slice(-49), blocksRef.current]);
+      blocksRef.current = next;
       setBlocks(next);
       setFuture([]);
     },
-    [blocks],
+    [],
   );
 
   const resetDocument = useCallback(async () => {
-    await document?.loadingTask.destroy();
+    scanGenerationRef.current += 1;
+    scanningRef.current = false;
+    const currentDocument = documentRef.current;
+    documentRef.current = null;
+    setScanning(false);
+    await currentDocument?.loadingTask.destroy();
     setDocument(null);
     setFile(null);
+    blocksRef.current = [];
     setBlocks([]);
     setPast([]);
     setFuture([]);
@@ -88,10 +104,15 @@ export function PdfRedactor() {
     setLoadState("idle");
     setSelectedBlockId(null);
     setPageTextStatus({});
-  }, [document]);
+    setScanning(false);
+    setScanProgress(null);
+  }, []);
 
   const loadFile = useCallback(
     async (nextFile: File) => {
+      const loadGeneration = scanGenerationRef.current + 1;
+      scanGenerationRef.current = loadGeneration;
+      scanningRef.current = false;
       setError(null);
       setNotice(null);
 
@@ -120,20 +141,28 @@ export function PdfRedactor() {
 
       setLoadState("loading");
       try {
-        await document?.loadingTask.destroy();
+        const currentDocument = documentRef.current;
+        documentRef.current = null;
+        await currentDocument?.loadingTask.destroy();
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
         const data = new Uint8Array(await nextFile.arrayBuffer());
         const task = pdfjs.getDocument({ data });
         const nextDocument = await task.promise;
 
+        if (scanGenerationRef.current !== loadGeneration) {
+          await nextDocument.loadingTask.destroy();
+          return;
+        }
         if (nextDocument.numPages > MAX_PAGES) {
           await nextDocument.loadingTask.destroy();
           throw new Error(`PDFs are limited to ${MAX_PAGES} pages.`);
         }
 
         setFile(nextFile);
+        documentRef.current = nextDocument;
         setDocument(nextDocument);
+        blocksRef.current = [];
         setBlocks([]);
         setPast([]);
         setFuture([]);
@@ -141,6 +170,8 @@ export function PdfRedactor() {
         setMode("text");
         setSelectedBlockId(null);
         setPageTextStatus({});
+        setScanning(false);
+        setScanProgress(null);
         setLoadState("ready");
       } catch (caught) {
         setLoadState("error");
@@ -151,7 +182,7 @@ export function PdfRedactor() {
         );
       }
     },
-    [document],
+    [],
   );
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
@@ -169,15 +200,16 @@ export function PdfRedactor() {
 
   const addBlock = useCallback(
     (block: RedactionBlock) => {
-      if (blocks.length >= MAX_BLOCKS) {
+      const current = blocksRef.current;
+      if (current.length >= MAX_BLOCKS) {
         setError(`A document can contain up to ${MAX_BLOCKS} redaction blocks.`);
         return;
       }
-      commitBlocks([...blocks, block]);
+      commitBlocks([...current, block]);
       setSelectedBlockId(block.id);
       setNotice(null);
     },
-    [blocks, commitBlocks],
+    [commitBlocks],
   );
 
   const handleTextLayerStatus = useCallback(
@@ -199,29 +231,149 @@ export function PdfRedactor() {
 
   const removeBlock = useCallback(
     (id: string) => {
-      commitBlocks(blocks.filter((block) => block.id !== id));
+      commitBlocks(blocksRef.current.filter((block) => block.id !== id));
       setSelectedBlockId((selected) => (selected === id ? null : selected));
     },
-    [blocks, commitBlocks],
+    [commitBlocks],
   );
 
   const undo = useCallback(() => {
     const previous = past.at(-1);
     if (!previous) return;
-    setFuture((history) => [blocks, ...history].slice(0, 50));
+    setFuture((history) => [blocksRef.current, ...history].slice(0, 50));
+    blocksRef.current = previous;
     setBlocks(previous);
     setPast((history) => history.slice(0, -1));
     setSelectedBlockId(null);
-  }, [blocks, past]);
+  }, [past]);
 
   const redo = useCallback(() => {
     const next = future[0];
     if (!next) return;
-    setPast((history) => [...history, blocks].slice(-50));
+    setPast((history) => [...history, blocksRef.current].slice(-50));
+    blocksRef.current = next;
     setBlocks(next);
     setFuture((history) => history.slice(1));
     setSelectedBlockId(null);
-  }, [blocks, future]);
+  }, [future]);
+
+  const scanSensitiveData = async () => {
+    const scanDocument = documentRef.current;
+    if (!scanDocument || scanningRef.current) return;
+    const scanGeneration = scanGenerationRef.current + 1;
+    scanGenerationRef.current = scanGeneration;
+    scanningRef.current = true;
+    setScanning(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const [{ detectPii }, { extractPageText, findingToBlock }] =
+        await Promise.all([
+          import("@/lib/pii/detector"),
+          import("@/lib/pii/pdf-text"),
+        ]);
+      const suggestions: RedactionBlock[] = [];
+      let modelAvailable = true;
+      let pagesWithoutText = 0;
+
+      for (
+        let pageIndex = 0;
+        pageIndex < scanDocument.numPages &&
+        blocksRef.current.length + suggestions.length < MAX_BLOCKS;
+        pageIndex += 1
+      ) {
+        if (
+          scanGenerationRef.current !== scanGeneration ||
+          documentRef.current !== scanDocument
+        ) {
+          return;
+        }
+        setScanProgress(
+          `Scanning page ${pageIndex + 1} of ${scanDocument.numPages} on this device…`,
+        );
+        const page = await extractPageText(scanDocument, pageIndex);
+        if (!page.text.trim()) {
+          pagesWithoutText += 1;
+          continue;
+        }
+        const result = await detectPii(page.text);
+        if (
+          scanGenerationRef.current !== scanGeneration ||
+          documentRef.current !== scanDocument
+        ) {
+          return;
+        }
+        modelAvailable &&= result.modelAvailable;
+        for (const finding of result.findings) {
+          const block = findingToBlock(page, finding);
+          if (block) suggestions.push(block);
+        }
+      }
+
+      if (
+        scanGenerationRef.current !== scanGeneration ||
+        documentRef.current !== scanDocument
+      ) {
+        return;
+      }
+      const merged = mergeSuggestionBlocks(
+        blocksRef.current,
+        suggestions,
+        MAX_BLOCKS,
+      );
+      const unique = merged.added;
+
+      if (unique.length) {
+        commitBlocks(merged.blocks);
+        setSelectedBlockId(unique[0].id);
+      }
+
+      const fallback = modelAvailable
+        ? ""
+        : " The contextual model was unavailable, so only structured patterns were used.";
+      const scans = pagesWithoutText
+        ? ` ${pagesWithoutText} page${pagesWithoutText === 1 ? " needs" : "s need"} manual area review because no searchable text was found.`
+        : "";
+      setNotice(
+        unique.length
+          ? `${unique.length} suggestion${unique.length === 1 ? "" : "s"} added to the review queue.${fallback}${scans}`
+          : `No new sensitive-data suggestions were found.${fallback}${scans}`,
+      );
+    } catch (caught) {
+      if (
+        scanGenerationRef.current !== scanGeneration ||
+        documentRef.current !== scanDocument
+      ) {
+        return;
+      }
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The document could not be scanned.",
+      );
+    } finally {
+      if (
+        scanGenerationRef.current === scanGeneration &&
+        documentRef.current === scanDocument
+      ) {
+        scanningRef.current = false;
+        setScanning(false);
+        setScanProgress(null);
+      }
+    }
+  };
+
+  useEffect(
+    () => () => {
+      scanGenerationRef.current += 1;
+      scanningRef.current = false;
+      const currentDocument = documentRef.current;
+      documentRef.current = null;
+      void currentDocument?.loadingTask.destroy();
+    },
+    [],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -473,6 +625,16 @@ export function PdfRedactor() {
         <div className="tool-group compact-tools">
           <button
             type="button"
+            className="tool-button scan-button"
+            disabled={scanning}
+            onClick={() => void scanSensitiveData()}
+          >
+            <SparkIcon />
+            {scanning ? "Scanning…" : "Find sensitive data"}
+          </button>
+          <span className="toolbar-divider" />
+          <button
+            type="button"
             className="icon-button"
             aria-label="Undo"
             disabled={!past.length}
@@ -548,6 +710,14 @@ export function PdfRedactor() {
               role="status"
             >
               {notice}
+            </div>
+          )}
+          {scanProgress && (
+            <div className="workspace-notice info" role="status">
+              <span className="scan-progress">
+                <SparkIcon />
+                {scanProgress}
+              </span>
             </div>
           )}
           {error && (
@@ -627,10 +797,16 @@ export function PdfRedactor() {
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span>
-                        <strong>REDACTED</strong>
+                        <strong>
+                          {block.suggestion
+                            ? block.suggestion.category.replaceAll("_", " ")
+                            : "REDACTED"}
+                        </strong>
                         <small>
-                          Page {block.pageIndex + 1} · {block.rects.length} line
-                          {block.rects.length === 1 ? "" : "s"}
+                          Page {block.pageIndex + 1} ·{" "}
+                          {block.suggestion
+                            ? `${Math.round(block.suggestion.confidence * 100)}% suggestion`
+                            : `${block.rects.length} line${block.rects.length === 1 ? "" : "s"}`}
                         </small>
                       </span>
                     </button>

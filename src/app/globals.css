@@ -549,6 +549,16 @@ a:focus-visible {
   box-shadow: 2px 2px 0 var(--ink);
 }
 
+.scan-button {
+  border-color: #a9b985;
+  background: #f4f9df;
+}
+
+.scan-button:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--acid);
+}
+
 .tool-button svg {
   width: 17px;
   height: 17px;
@@ -660,6 +670,25 @@ kbd {
   height: 26px;
 }
 
+.scan-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scan-progress svg {
+  width: 16px;
+  height: 16px;
+  animation: scan-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes scan-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
+}
+
 .pages {
   display: flex;
   min-width: max-content;
@@ -707,6 +736,11 @@ kbd {
 }
 
 .textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(
+    var(--total-scale-factor, 1) * var(--min-font-size)
+  );
+  --min-font-size-inv: calc(1 / var(--min-font-size));
   position: absolute;
   z-index: 1;
   inset: 0;
@@ -726,6 +760,16 @@ kbd {
   cursor: text;
   transform-origin: 0 0;
   white-space: pre;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+    scale(var(--min-font-size-inv));
 }
 
 .pdf-page:not(.area-mode) .textLayer,
@@ -794,6 +838,12 @@ kbd {
 .redaction-mark.selected {
   background: #fff;
   box-shadow: 0 0 0 3px rgba(190, 229, 33, 0.82);
+}
+
+.redaction-mark.suggestion {
+  border-style: dashed;
+  border-color: #6f841d;
+  background: #f4f9df;
 }
 
 .redaction-mark.drawing {
@@ -1301,6 +1351,19 @@ kbd {
     font-size: 10px;
   }
 
+  .scan-button {
+    width: 37px;
+    justify-content: center;
+    overflow: hidden;
+    color: transparent;
+    gap: 0;
+  }
+
+  .scan-button svg {
+    position: absolute;
+    color: var(--ink);
+  }
+
   .editor-toolbar {
     padding: 0 7px;
   }
@@ -1370,6 +1433,8 @@ kbd {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
