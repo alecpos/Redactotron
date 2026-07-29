@@ -30,6 +30,7 @@ class PreparedBlock:
     page_index: int
     rects: tuple[pymupdf.Rect, ...]
     label_rect_index: int
+    label_rotation: int
 
 
 def _normalized_text(value: str) -> str:
@@ -121,11 +122,14 @@ def _prepare_blocks(
                 )
             converted.append(mupdf_rect)
 
+        label_rect = converted[label_rect_index]
+        text_rotation = 90 if label_rect.height > label_rect.width else 0
         prepared.append(
             PreparedBlock(
                 page_index=page_index,
                 rects=tuple(converted),
                 label_rect_index=label_rect_index,
+                label_rotation=text_rotation,
             )
         )
 
@@ -136,8 +140,10 @@ def _replacement_font_size(rect: pymupdf.Rect) -> float:
     unit_width = pymupdf.get_text_length(
         REPLACEMENT, fontname="hebo", fontsize=1
     )
-    width_limited = rect.width * 0.88 / unit_width
-    height_limited = rect.height / 1.25
+    major = max(rect.width, rect.height)
+    minor = min(rect.width, rect.height)
+    width_limited = major * 0.88 / unit_width
+    height_limited = minor / 1.7
     size = min(10.0, width_limited, height_limited)
     if size < 4:
         raise RedactionError(
@@ -257,6 +263,7 @@ def redact_pdf_bytes(source: bytes, manifest: dict[str, Any]) -> bytes:
                 align=pymupdf.TEXT_ALIGN_CENTER,
                 color=(0, 0, 0),
                 overlay=True,
+                rotate=block.label_rotation,
             )
             if remaining < 0:
                 raise RedactionError(

@@ -11,7 +11,25 @@ function overlapRatio(left: PiiFinding, right: PiiFinding) {
 }
 
 export function mergeFindings(findings: PiiFinding[]) {
-  const prioritized = [...findings].sort(
+  const coalesced: PiiFinding[] = [];
+  for (const finding of [...findings].sort(
+    (left, right) => left.start - right.start || left.end - right.end,
+  )) {
+    const previous = coalesced.at(-1);
+    if (
+      previous &&
+      previous.source === finding.source &&
+      previous.category === finding.category &&
+      finding.start < previous.end
+    ) {
+      previous.end = Math.max(previous.end, finding.end);
+      previous.confidence = Math.max(previous.confidence, finding.confidence);
+      continue;
+    }
+    coalesced.push({ ...finding });
+  }
+
+  const prioritized = coalesced.sort(
     (left, right) =>
       Number(right.source === "recognizer") -
         Number(left.source === "recognizer") ||

@@ -48,7 +48,7 @@ async function getClassifier(): Promise<TokenClassifier> {
   return classifierPromise;
 }
 
-function chunks(text: string) {
+export function splitTextIntoChunks(text: string) {
   const result: Array<{ text: string; offset: number }> = [];
   let offset = 0;
 
@@ -68,6 +68,25 @@ function chunks(text: string) {
   return result;
 }
 
+function foldedTextWithOffsets(value: string) {
+  let text = "";
+  const offsets: number[] = [];
+
+  for (let index = 0; index < value.length; ) {
+    const codePoint = value.codePointAt(index);
+    if (codePoint === undefined) break;
+    const character = String.fromCodePoint(codePoint);
+    const folded = character.toLocaleLowerCase("en-US");
+    for (let foldedIndex = 0; foldedIndex < folded.length; foldedIndex += 1) {
+      offsets.push(index);
+    }
+    text += folded;
+    index += character.length;
+  }
+  offsets.push(value.length);
+  return { text, offsets };
+}
+
 function normalizedToken(value: string) {
   return value
     .replace(/^##/u, "")
@@ -79,7 +98,7 @@ export function normalizeTokenResults(
   text: string,
   results: TokenClassificationResult[],
 ): NormalizedTokenResult[] {
-  const lowerText = text.toLocaleLowerCase("en-US");
+  const foldedText = foldedTextWithOffsets(text);
   const normalized: NormalizedTokenResult[] = [];
   let cursor = 0;
 
@@ -97,12 +116,19 @@ export function normalizeTokenResults(
     ) {
       const token = normalizedToken(result.word ?? "");
       if (!token || token === "[UNK]") continue;
-      start = lowerText.indexOf(token.toLocaleLowerCase("en-US"), cursor);
-      if (start < 0) {
-        start = lowerText.indexOf(token.toLocaleLowerCase("en-US"));
+      const foldedToken = token.toLocaleLowerCase("en-US");
+      const foldedCursor = Math.max(
+        0,
+        foldedText.offsets.findIndex((offset) => offset >= cursor),
+      );
+      let foldedStart = foldedText.text.indexOf(foldedToken, foldedCursor);
+      if (foldedStart < 0) {
+        foldedStart = foldedText.text.indexOf(foldedToken);
       }
-      if (start < 0) continue;
-      end = start + token.length;
+      if (foldedStart < 0) continue;
+      const foldedEnd = foldedStart + foldedToken.length;
+      start = foldedText.offsets[foldedStart];
+      end = foldedText.offsets[foldedEnd] ?? text.length;
     }
 
     cursor = end as number;
@@ -135,7 +161,7 @@ export async function findContextualPii(text: string): Promise<PiiFinding[]> {
   const classifier = await getClassifier();
   const findings: PiiFinding[] = [];
 
-  for (const chunk of chunks(text)) {
+  for (const chunk of splitTextIntoChunks(text)) {
     const results = await classifier(chunk.text, {
       aggregation_strategy: "simple",
     });

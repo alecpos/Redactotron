@@ -66,10 +66,19 @@ function toScreenRect(
 function replacementFontSize(rect: ScreenRect) {
   // Helvetica Bold "REDACTED" is roughly 5.7 em wide. Keep the label inside
   // the user's exact rectangle instead of expanding into neighboring text.
+  const major = Math.max(rect.width, rect.height);
+  const minor = Math.min(rect.width, rect.height);
   return Math.max(
     4,
-    Math.min(10, (rect.width * 0.9) / 5.7, rect.height / 1.25),
+    Math.min(10, (major * 0.9) / 5.7, minor / 1.25),
   );
+}
+
+function replacementLabelStyle(rect: ScreenRect) {
+  return {
+    fontSize: replacementFontSize(rect),
+    transform: rect.height > rect.width ? "rotate(90deg)" : undefined,
+  };
 }
 
 function mergeLineRects(rects: DOMRect[]): DOMRect[] {
@@ -395,7 +404,9 @@ export function PdfPage({
                 return (
                   <div
                     key={`${block.id}-${index}`}
-                    className={`redaction-mark ${selected ? "selected" : ""}`}
+                    className={`redaction-mark ${
+                      block.suggestion ? "suggestion" : ""
+                    } ${selected ? "selected" : ""}`}
                     style={screen}
                     onPointerDown={(event) => {
                       event.stopPropagation();
@@ -406,7 +417,7 @@ export function PdfPage({
                       <>
                         <span
                           className="redaction-label"
-                          style={{ fontSize: replacementFontSize(screen) }}
+                          style={replacementLabelStyle(screen)}
                         >
                           REDACTED
                         </span>
@@ -430,7 +441,7 @@ export function PdfPage({
             <div className="redaction-mark drawing" style={draftScreenRect}>
               <span
                 className="redaction-label"
-                style={{ fontSize: replacementFontSize(draftScreenRect) }}
+                style={replacementLabelStyle(draftScreenRect)}
               >
                 REDACTED
               </span>

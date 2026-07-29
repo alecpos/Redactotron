@@ -43,10 +43,13 @@ npm run test:pii
 source .venv/bin/activate && npm run test:engine
 ```
 
-The first sensitive-data scan downloads the pinned 28.7 MB INT8 model into
-the browser cache. No PDF text is sent to an inference service. The model is
-English-focused and its output is advisory: evaluate it against representative
-documents before broadening entity types or lowering confidence thresholds.
+The first sensitive-data scan downloads the pinned 28.7 MB INT8 model plus
+the runtime assets required by the browser's available execution provider.
+Transformers.js stores model files in the browser cache, so later scans can
+reuse them, but this is not a fully offline first-run experience. No PDF text
+is sent to an inference service. The model is English-focused and its output
+is advisory: evaluate it against representative documents before broadening
+entity types or lowering confidence thresholds.
 
 ## How the redaction works
 

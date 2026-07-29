@@ -16,6 +16,10 @@ export type PageTextSegment = {
   text: string;
   dir: string;
   rect: PdfRect;
+  transform: [number, number, number, number, number, number];
+  width: number;
+  height: number;
+  fontFamily: string;
 };
 
 export type PageTextMap = {

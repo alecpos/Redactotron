@@ -736,6 +736,11 @@ kbd {
 }
 
 .textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(
+    var(--total-scale-factor, 1) * var(--min-font-size)
+  );
+  --min-font-size-inv: calc(1 / var(--min-font-size));
   position: absolute;
   z-index: 1;
   inset: 0;
@@ -755,6 +760,16 @@ kbd {
   cursor: text;
   transform-origin: 0 0;
   white-space: pre;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+    scale(var(--min-font-size-inv));
 }
 
 .pdf-page:not(.area-mode) .textLayer,
@@ -823,6 +838,12 @@ kbd {
 .redaction-mark.selected {
   background: #fff;
   box-shadow: 0 0 0 3px rgba(190, 229, 33, 0.82);
+}
+
+.redaction-mark.suggestion {
+  border-style: dashed;
+  border-color: #6f841d;
+  background: #f4f9df;
 }
 
 .redaction-mark.drawing {
@@ -1412,6 +1433,8 @@ kbd {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

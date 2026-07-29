@@ -7,6 +7,100 @@ type Recognizer = {
   validate?: (value: string) => boolean;
 };
 
+// ISO 13616-compliant national lengths from the SWIFT IBAN Registry,
+// Release 102 (June 2026).
+const IBAN_LENGTHS: Readonly<Record<string, number>> = {
+  AD: 24,
+  AE: 23,
+  AL: 28,
+  AT: 20,
+  AZ: 28,
+  BA: 20,
+  BE: 16,
+  BG: 22,
+  BH: 22,
+  BI: 27,
+  BR: 29,
+  BY: 28,
+  CH: 21,
+  CR: 22,
+  CY: 28,
+  CZ: 24,
+  DE: 22,
+  DJ: 27,
+  DK: 18,
+  DO: 28,
+  EE: 20,
+  EG: 29,
+  ES: 24,
+  FI: 18,
+  FK: 18,
+  FO: 18,
+  FR: 27,
+  GB: 22,
+  GE: 22,
+  GI: 23,
+  GL: 18,
+  GR: 27,
+  GT: 28,
+  HN: 28,
+  HR: 21,
+  HU: 28,
+  IE: 22,
+  IL: 23,
+  IQ: 23,
+  IS: 26,
+  IT: 27,
+  JO: 30,
+  KW: 30,
+  KZ: 20,
+  LB: 28,
+  LC: 32,
+  LI: 21,
+  LT: 20,
+  LU: 20,
+  LV: 21,
+  LY: 25,
+  MC: 27,
+  MD: 24,
+  ME: 22,
+  MK: 19,
+  MN: 20,
+  MR: 27,
+  MT: 31,
+  MU: 30,
+  NI: 32,
+  NL: 18,
+  NO: 15,
+  OM: 23,
+  PK: 24,
+  PL: 28,
+  PS: 29,
+  PT: 25,
+  QA: 29,
+  RO: 24,
+  RS: 22,
+  RU: 33,
+  SA: 24,
+  SC: 31,
+  SD: 18,
+  SE: 24,
+  SI: 19,
+  SK: 24,
+  SM: 27,
+  SO: 23,
+  ST: 25,
+  SV: 28,
+  TL: 23,
+  TN: 24,
+  TR: 26,
+  UA: 29,
+  VA: 22,
+  VG: 24,
+  XK: 20,
+  YE: 30,
+};
+
 const recognizers: Recognizer[] = [
   {
     category: "EMAIL_ADDRESS",
@@ -22,13 +116,16 @@ const recognizers: Recognizer[] = [
   {
     category: "PHONE_NUMBER",
     pattern:
-      /(?<!\d)(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}(?!\d)/gu,
+      /(?<![\d+])(?:(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}|\+(?:\d[\s().-]?){7,14}\d)(?![\s().-]?\d)/gu,
     confidence: 0.97,
-    validate: (value) => value.replace(/\D/g, "").length >= 10,
+    validate: (value) => {
+      const length = value.replace(/\D/g, "").length;
+      return length >= 10 && length <= 15;
+    },
   },
   {
     category: "CREDIT_CARD",
-    pattern: /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/gu,
+    pattern: /(?<!\d)\d(?:[ -]?\d){12,18}(?![ -]?\d)/gu,
     confidence: 0.99,
     validate: (value) => passesLuhn(value.replace(/\D/g, "")),
   },
@@ -74,7 +171,7 @@ function passesLuhn(digits: string) {
 
 function passesIbanMod97(value: string) {
   const compact = value.replace(/\s/g, "").toUpperCase();
-  if (compact.length < 15 || compact.length > 34) return false;
+  if (compact.length !== IBAN_LENGTHS[compact.slice(0, 2)]) return false;
   const rearranged = compact.slice(4) + compact.slice(0, 4);
   let remainder = 0;
 
@@ -89,6 +186,19 @@ function passesIbanMod97(value: string) {
   return remainder === 1;
 }
 
+function passesAbaRoutingChecksum(digits: string) {
+  if (!/^\d{9}$/u.test(digits)) return false;
+  const weights = [3, 7, 1, 3, 7, 1, 3, 7, 1];
+  return (
+    [...digits].reduce(
+      (sum, digit, index) => sum + Number(digit) * weights[index],
+      0,
+    ) %
+      10 ===
+    0
+  );
+}
+
 function contextualAccountFindings(text: string): PiiFinding[] {
   const pattern =
     /\b(?:account|acct|routing)\s*(?:number|no\.?|#)?\s*[:#-]?\s*([0-9][0-9 -]{3,20}[0-9])\b/giu;
@@ -98,11 +208,13 @@ function contextualAccountFindings(text: string): PiiFinding[] {
     if (match.index === undefined || !match[1]) continue;
     const digits = match[1].replace(/\D/g, "");
     if (digits.length < 4 || digits.length > 17) continue;
+    const isRouting = /routing/i.test(match[0]);
+    if (isRouting && !passesAbaRoutingChecksum(digits)) continue;
     const relativeStart = match[0].lastIndexOf(match[1]);
     findings.push({
       start: match.index + relativeStart,
       end: match.index + relativeStart + match[1].length,
-      category: /routing/i.test(match[0]) ? "US_BANK_NUMBER" : "ACCOUNT_NUMBER",
+      category: isRouting ? "US_BANK_NUMBER" : "ACCOUNT_NUMBER",
       confidence: 0.96,
       source: "recognizer",
     });
