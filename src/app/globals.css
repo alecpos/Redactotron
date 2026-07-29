@@ -1016,11 +1016,35 @@ kbd {
   position: absolute;
   z-index: 8;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   background: #fff1ee;
+  padding: 24px;
   color: #8e3025;
   font-size: 13px;
+  text-align: center;
+}
+
+.page-error .button {
+  min-height: 38px;
+  background: var(--white);
+  color: var(--ink);
+}
+
+.page-error details {
+  max-width: min(520px, 100%);
+  color: #6c4944;
+  font-size: 11px;
+}
+
+.page-error code {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 /* Sidebar */
