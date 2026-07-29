@@ -549,6 +549,16 @@ a:focus-visible {
   box-shadow: 2px 2px 0 var(--ink);
 }
 
+.scan-button {
+  border-color: #a9b985;
+  background: #f4f9df;
+}
+
+.scan-button:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--acid);
+}
+
 .tool-button svg {
   width: 17px;
   height: 17px;
@@ -658,6 +668,25 @@ kbd {
 .workspace-notice .icon-button {
   width: 26px;
   height: 26px;
+}
+
+.scan-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scan-progress svg {
+  width: 16px;
+  height: 16px;
+  animation: scan-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes scan-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
 }
 
 .pages {
@@ -1299,6 +1328,19 @@ kbd {
   .tool-button {
     padding: 0 8px;
     font-size: 10px;
+  }
+
+  .scan-button {
+    width: 37px;
+    justify-content: center;
+    overflow: hidden;
+    color: transparent;
+    gap: 0;
+  }
+
+  .scan-button svg {
+    position: absolute;
+    color: var(--ink);
   }
 
   .editor-toolbar {

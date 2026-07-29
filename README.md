@@ -5,6 +5,13 @@ PyMuPDF. Users can select text or draw a section, review and remove draft
 blocks, then export a new PDF in which the original content is physically
 removed and replaced with searchable `REDACTED` text.
 
+The editor can also suggest sensitive data with a hybrid detector. Email
+addresses, US SSNs, phone numbers, payment cards, IBANs, and context-labeled
+account numbers use deterministic validation. Names and locations use a
+quantized BERT token-classification model through Transformers.js. Inference
+runs in the browser; suggestions remain removable drafts until the user
+confirms the export.
+
 ## Run locally
 
 Install the JavaScript and Python dependencies:
@@ -32,8 +39,14 @@ Run checks:
 npm run typecheck
 npm run lint
 npm run build
+npm run test:pii
 source .venv/bin/activate && npm run test:engine
 ```
+
+The first sensitive-data scan downloads the pinned 28.7 MB INT8 model into
+the browser cache. No PDF text is sent to an inference service. The model is
+English-focused and its output is advisory: evaluate it against representative
+documents before broadening entity types or lowering confidence thresholds.
 
 ## How the redaction works
 
@@ -72,6 +85,9 @@ The original file is never overwritten.
 - [Adobe: redact and sanitize PDFs](https://helpx.adobe.com/acrobat/desktop/protect-documents/redact-pdfs/redacting-sanitizing.html)
 - [PyMuPDF redaction APIs](https://pymupdf.readthedocs.io/en/latest/page.html)
 - [PDF.js API](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFPageProxy.html)
+- [ONNX Runtime Web browser inference](https://onnxruntime.ai/docs/tutorials/web/)
+- [Transformers.js pipelines](https://huggingface.co/docs/transformers.js/pipelines)
+- [BERT small PII detector model card](https://huggingface.co/onnx-community/bert-small-pii-detection-ONNX)
 - [Vercel Python runtime](https://vercel.com/docs/functions/runtimes/python)
 - [Vercel request size and direct-upload guidance](https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions)
 - [OWASP file upload guidance](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)

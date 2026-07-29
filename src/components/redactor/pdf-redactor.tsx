@@ -16,6 +16,7 @@ import {
   LockIcon,
   RedoIcon,
   ShieldIcon,
+  SparkIcon,
   TextSelectIcon,
   TrashIcon,
   UndoIcon,
@@ -62,6 +63,8 @@ export function PdfRedactor() {
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [pageTextStatus, setPageTextStatus] = useState<
     Record<number, boolean>
@@ -88,6 +91,8 @@ export function PdfRedactor() {
     setLoadState("idle");
     setSelectedBlockId(null);
     setPageTextStatus({});
+    setScanning(false);
+    setScanProgress(null);
   }, [document]);
 
   const loadFile = useCallback(
@@ -141,6 +146,8 @@ export function PdfRedactor() {
         setMode("text");
         setSelectedBlockId(null);
         setPageTextStatus({});
+        setScanning(false);
+        setScanProgress(null);
         setLoadState("ready");
       } catch (caught) {
         setLoadState("error");
@@ -222,6 +229,104 @@ export function PdfRedactor() {
     setFuture((history) => history.slice(1));
     setSelectedBlockId(null);
   }, [blocks, future]);
+
+  const scanSensitiveData = async () => {
+    if (!document || scanning) return;
+    setScanning(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const [{ detectPii }, { extractPageText, findingToBlock }] =
+        await Promise.all([
+          import("@/lib/pii/detector"),
+          import("@/lib/pii/pdf-text"),
+        ]);
+      const suggestions: RedactionBlock[] = [];
+      let modelAvailable = true;
+      let pagesWithoutText = 0;
+
+      for (
+        let pageIndex = 0;
+        pageIndex < document.numPages &&
+        blocks.length + suggestions.length < MAX_BLOCKS;
+        pageIndex += 1
+      ) {
+        setScanProgress(
+          `Scanning page ${pageIndex + 1} of ${document.numPages} on this device…`,
+        );
+        const page = await extractPageText(document, pageIndex);
+        if (!page.text.trim()) {
+          pagesWithoutText += 1;
+          continue;
+        }
+        const result = await detectPii(page.text);
+        modelAvailable &&= result.modelAvailable;
+        for (const finding of result.findings) {
+          const block = findingToBlock(page, finding);
+          if (block) suggestions.push(block);
+        }
+      }
+
+      const unique = suggestions
+        .filter(
+          (candidate) =>
+            !blocks.some(
+              (block) =>
+                block.pageIndex === candidate.pageIndex &&
+                block.rects.some((rect) =>
+                  candidate.rects.some((candidateRect) => {
+                    const overlapWidth = Math.max(
+                      0,
+                      Math.min(rect.x1, candidateRect.x1) -
+                        Math.max(rect.x0, candidateRect.x0),
+                    );
+                    const overlapHeight = Math.max(
+                      0,
+                      Math.min(rect.y1, candidateRect.y1) -
+                        Math.max(rect.y0, candidateRect.y0),
+                    );
+                    const candidateArea =
+                      (candidateRect.x1 - candidateRect.x0) *
+                      (candidateRect.y1 - candidateRect.y0);
+                    return (
+                      (overlapWidth * overlapHeight) /
+                        Math.max(1, candidateArea) >
+                      0.6
+                    );
+                  }),
+                ),
+            ),
+        )
+        .slice(0, MAX_BLOCKS - blocks.length);
+
+      if (unique.length) {
+        commitBlocks([...blocks, ...unique]);
+        setSelectedBlockId(unique[0].id);
+      }
+
+      const fallback = modelAvailable
+        ? ""
+        : " The contextual model was unavailable, so only structured patterns were used.";
+      const scans = pagesWithoutText
+        ? ` ${pagesWithoutText} page${pagesWithoutText === 1 ? "" : "s"} had no searchable text and need manual area review.`
+        : "";
+      setNotice(
+        unique.length
+          ? `${unique.length} suggestion${unique.length === 1 ? "" : "s"} added to the review queue.${fallback}${scans}`
+          : `No new sensitive-data suggestions were found.${fallback}${scans}`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The document could not be scanned.",
+      );
+    } finally {
+      setScanning(false);
+      setScanProgress(null);
+    }
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -473,6 +578,16 @@ export function PdfRedactor() {
         <div className="tool-group compact-tools">
           <button
             type="button"
+            className="tool-button scan-button"
+            disabled={scanning}
+            onClick={() => void scanSensitiveData()}
+          >
+            <SparkIcon />
+            {scanning ? "Scanning…" : "Find sensitive data"}
+          </button>
+          <span className="toolbar-divider" />
+          <button
+            type="button"
             className="icon-button"
             aria-label="Undo"
             disabled={!past.length}
@@ -548,6 +663,14 @@ export function PdfRedactor() {
               role="status"
             >
               {notice}
+            </div>
+          )}
+          {scanProgress && (
+            <div className="workspace-notice info" role="status">
+              <span className="scan-progress">
+                <SparkIcon />
+                {scanProgress}
+              </span>
             </div>
           )}
           {error && (
@@ -627,10 +750,16 @@ export function PdfRedactor() {
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span>
-                        <strong>REDACTED</strong>
+                        <strong>
+                          {block.suggestion
+                            ? block.suggestion.category.replaceAll("_", " ")
+                            : "REDACTED"}
+                        </strong>
                         <small>
-                          Page {block.pageIndex + 1} · {block.rects.length} line
-                          {block.rects.length === 1 ? "" : "s"}
+                          Page {block.pageIndex + 1} ·{" "}
+                          {block.suggestion
+                            ? `${Math.round(block.suggestion.confidence * 100)}% suggestion`
+                            : `${block.rects.length} line${block.rects.length === 1 ? "" : "s"}`}
                         </small>
                       </span>
                     </button>
