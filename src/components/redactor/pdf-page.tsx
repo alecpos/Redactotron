@@ -13,6 +13,7 @@ import type {
 } from "pdfjs-dist/types/src/display/api";
 import type { PageViewport } from "pdfjs-dist/types/src/display/page_viewport";
 import { CloseIcon } from "@/components/icons";
+import { createBrowserId } from "@/lib/browser-compat";
 import type {
   PdfRect,
   RedactionBlock,
@@ -199,7 +200,7 @@ function mergeLineRects(rects: DOMRect[]): DOMRect[] {
   const merged: DOMRect[] = [];
 
   for (const rect of sorted) {
-    const previous = merged.at(-1);
+    const previous = merged[merged.length - 1];
     if (!previous) {
       merged.push(rect);
       continue;
@@ -357,7 +358,7 @@ export function PdfPage({
       );
 
       onAddBlock({
-        id: crypto.randomUUID(),
+        id: createBrowserId(),
         pageIndex,
         rects: valid,
         labelRectIndex,

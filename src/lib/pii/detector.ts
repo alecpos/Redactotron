@@ -15,7 +15,7 @@ export function mergeFindings(findings: PiiFinding[]) {
   for (const finding of [...findings].sort(
     (left, right) => left.start - right.start || left.end - right.end,
   )) {
-    const previous = coalesced.at(-1);
+    const previous = coalesced[coalesced.length - 1];
     if (
       previous &&
       previous.source === finding.source &&

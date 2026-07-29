@@ -1,10 +1,10 @@
 # Redactotron
 
-A focused document redaction editor built with Next.js, PDF.js, PDF-Lib,
-Mammoth, Tesseract.js, Flask, and PyMuPDF. Users can import PDF, DOCX, TXT,
-PNG, or JPEG files; select text or draw a section; review and remove draft
-blocks; then export a searchable PDF in which the selected content is
-physically removed and replaced with `REDACTED`.
+A focused, browser-only document redaction editor built with Next.js, PDF.js,
+PDF-Lib, MuPDF WebAssembly, Mammoth, Tesseract.js, and Transformers.js. Users
+can import PDF, DOCX, TXT, PNG, or JPEG files; select text or draw a section;
+review and remove draft blocks; then export a searchable PDF in which the
+selected content is physically removed and replaced with `REDACTED`.
 
 The editor can also suggest sensitive data with a hybrid detector. Email
 addresses, US SSNs, phone numbers, payment cards, IBANs, and context-labeled
@@ -15,24 +15,19 @@ confirms the export.
 
 ## Run locally
 
-Install the JavaScript and Python dependencies:
+Install the JavaScript dependencies:
 
 ```bash
 npm install
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 ```
 
-Start Next.js and the local Python redaction service together:
+Start Next.js:
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`. In development, Next.js proxies
-`/api/redact` to the local Flask process. On Vercel, `api/redact.py` is
-served directly as the Python Function at that path.
+Open `http://localhost:3000`.
 
 Run checks:
 
@@ -41,16 +36,25 @@ npm run typecheck
 npm run lint
 npm run build
 npm run test:pii
-source .venv/bin/activate && npm run test:engine
+npm run test:local-redaction
 ```
 
-The first sensitive-data scan downloads the pinned 28.7 MB INT8 model plus
-the runtime assets required by the browser's available execution provider.
-Transformers.js stores model files in the browser cache, so later scans can
-reuse them, but this is not a fully offline first-run experience. No PDF text
-is sent to an inference service. The model is English-focused and its output
-is advisory: evaluate it against representative documents before broadening
-entity types or lowering confidence thresholds.
+The pinned 28.7 MB INT8 model, ONNX runtime, MuPDF WebAssembly engine,
+Tesseract worker/core, and English OCR data are served from the same origin as
+the application. Transformers.js is configured with remote model loading
+disabled. The build verifies SHA-256 hashes for the committed model and OCR
+assets.
+
+After the application and its static assets have loaded, importing, OCR,
+sensitive-data detection, redaction, verification, and PDF export all happen
+inside the browser. No document bytes, pixels, extracted text, selections, or
+redaction coordinates are sent to an application server or third-party
+service. A `connect-src 'self'` Content Security Policy provides an additional
+browser-enforced boundary.
+
+The model is English-focused and its output is advisory: evaluate it against
+representative documents before broadening entity types or lowering confidence
+thresholds.
 
 ## How the redaction works
 
@@ -64,8 +68,8 @@ Every supported source is normalized in the browser into a working PDF:
   are not preserved in the current importer.
 - TXT files are typeset into a searchable PDF.
 - PNG and JPEG files retain their source image and receive a positioned,
-  invisible English OCR text layer. The OCR engine and language model are
-  downloaded and cached by the browser; document pixels are not sent to an OCR
+  invisible English OCR text layer. The locally served OCR engine and English
+  language data run in the browser; document pixels are not sent to an OCR
   service.
 
 The original source file is retained only for its name and never overwritten.
@@ -73,44 +77,43 @@ PDF.js renders the working PDF and exposes its selectable text layer. Each
 pointer action becomes one logical block containing one or more line
 rectangles. Coordinates are saved in PDF user space, not screen pixels.
 
-On Apply, `/api/redact.py`:
+On Apply, the browser-local MuPDF WebAssembly engine:
 
 1. validates the PDF and every coordinate;
-2. converts PDF.js coordinates with PyMuPDF's page transformation matrix;
+2. converts PDF.js coordinates into MuPDF page space;
 3. adds redaction annotations and applies them to text, images, and graphics;
 4. inserts one searchable `REDACTED` label per logical block;
-5. removes metadata, scripts, attachments, links, thumbnails, comments, and
-   unreferenced objects;
-6. reopens the output and verifies both content removal and replacement text.
+5. grafts only the sanitized pages into a new PDF, excluding document metadata,
+   scripts, attachments, forms, links, comments, and unrelated objects;
+6. garbage-collects, sanitizes, deduplicates, and compresses the output.
 
-The original file is never overwritten, and every output is a PDF.
+The original file is never overwritten, no server endpoint receives the PDF,
+and every output is a vector-preserving PDF. Images are modified only where a
+redaction intersects their pixels, so pages are not rasterized and output size
+does not balloon from full-page screenshots. Large modified scan images are
+recompressed as high-quality JPEG only when that makes the exported PDF
+smaller; native vector content is never converted to pixels.
 
 ## Production notes
 
-- Source files and the normalized working PDF are intentionally limited to
-  4 MB because Vercel
-  Functions have a 4.5 MB request body limit. For larger PDFs, upload directly
-  to Vercel Private Blob and send only the private pathname, hash, and manifest
-  to the Python function.
 - Browser OCR currently uses English recognition. Add an explicit language
-  picker and locally hosted trained-data files before claiming multilingual
-  OCR support.
+  picker and vendor the corresponding trained-data files before claiming
+  multilingual OCR support.
 - DOCX import prioritizes searchable, reviewable content over Word layout
-  fidelity. A layout-faithful SaaS workflow should use an isolated conversion
-  service such as a containerized LibreOffice/Gotenberg worker, not a Vercel
-  request function.
-- PyMuPDF is offered under AGPL and commercial licenses. A closed-source SaaS
-  should obtain an Artifex commercial license or use a commercial PDF SDK.
-- The ATS-preserving mode retains legitimate text outside marked regions.
-  For especially sensitive material, add a high-assurance export that
-  rasterizes the already-redacted pages into a new PDF and OCRs that result.
-- Signed, encrypted, and active-form PDFs are rejected in this first version
-  rather than risking a misleading or invalid output.
+  fidelity. A layout-faithful conversion service would conflict with the
+  browser-only privacy boundary.
+- MuPDF is offered under AGPL and commercial licenses. A public deployment
+  must satisfy the AGPL's source and distribution requirements or use an
+  Artifex commercial license; confirm the intended licensing path before
+  production use.
+- The vector-preserving mode retains legitimate text outside marked regions.
+  Signed PDFs lose their signature validity when edited, and encrypted PDFs are
+  rejected rather than risking a misleading output.
 
 ## Primary references
 
 - [Adobe: redact and sanitize PDFs](https://helpx.adobe.com/acrobat/desktop/protect-documents/redact-pdfs/redacting-sanitizing.html)
-- [PyMuPDF redaction APIs](https://pymupdf.readthedocs.io/en/latest/page.html)
+- [MuPDF JavaScript redaction APIs](https://mupdf.readthedocs.io/en/latest/reference/javascript/types/PDFPage.html#PDFPage.prototype.applyRedactions)
 - [PDF.js API](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFPageProxy.html)
 - [ONNX Runtime Web browser inference](https://onnxruntime.ai/docs/tutorials/web/)
 - [Transformers.js pipelines](https://huggingface.co/docs/transformers.js/pipelines)
@@ -118,7 +121,4 @@ The original file is never overwritten, and every output is a PDF.
 - [PDF-Lib](https://github.com/Hopding/pdf-lib)
 - [Mammoth browser API](https://github.com/mwilliamson/mammoth.js)
 - [Tesseract.js API](https://github.com/naptha/tesseract.js/blob/master/docs/api.md)
-- [Vercel Python runtime](https://vercel.com/docs/functions/runtimes/python)
-- [Vercel request size and direct-upload guidance](https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions)
-- [OWASP file upload guidance](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
 - [PETS 2023: Glyph positions break PDF text redaction](https://petsymposium.org/popets/2023/popets-2023-0069.php)
