@@ -161,3 +161,59 @@ test("browser engine keeps a redacted scan compact", async () => {
     result.destroy();
   }
 });
+
+test("browser engine applies redactions across multiple pages", async () => {
+  const document = await PDFDocument.create();
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  const secrets = ["FIRST PAGE SECRET", "SECOND PAGE SECRET"];
+  const blocks: RedactionBlock[] = [];
+
+  secrets.forEach((secret, pageIndex) => {
+    const page = document.addPage([612, 792]);
+    const x = 72;
+    const y = 700;
+    const fontSize = 16;
+    page.drawText(secret, { x, y, size: fontSize, font });
+    page.drawText(`PUBLIC PAGE ${pageIndex + 1}`, {
+      x,
+      y: 650,
+      size: fontSize,
+      font,
+    });
+    blocks.push({
+      id: `secret-${pageIndex}`,
+      pageIndex,
+      rects: [{
+        x0: x - 2,
+        y0: y - 3,
+        x1: x + font.widthOfTextAtSize(secret, fontSize) + 2,
+        y1: y + fontSize + 3,
+      }],
+      labelRectIndex: 0,
+      sourceFontSize: fontSize,
+      replacement: "REDACTED",
+      appearance: "text-replacement",
+    });
+  });
+
+  const source = new Uint8Array(await document.save());
+  const output = await createLocalRedactedPdf(source, blocks);
+  const result = new mupdf.PDFDocument(output);
+
+  try {
+    assert.equal(result.countPages(), 2);
+    for (let pageIndex = 0; pageIndex < 2; pageIndex += 1) {
+      const page = result.loadPage(pageIndex);
+      try {
+        const text = page.toStructuredText().asText();
+        assert.equal(text.includes(secrets[pageIndex]), false);
+        assert.match(text, new RegExp(`PUBLIC PAGE ${pageIndex + 1}`));
+        assert.equal(text.match(/REDACTED/g)?.length, 1);
+      } finally {
+        page.destroy();
+      }
+    }
+  } finally {
+    result.destroy();
+  }
+});

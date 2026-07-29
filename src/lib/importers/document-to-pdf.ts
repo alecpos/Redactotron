@@ -399,15 +399,58 @@ async function importText(file: File, onProgress: ProgressCallback) {
   };
 }
 
-function flattenOcrWords(
-  blocks: Tesseract.Block[] | null,
-): Tesseract.Word[] {
-  if (!blocks) return [];
-  return blocks.flatMap((block) =>
-    block.paragraphs.flatMap((paragraph) =>
-      paragraph.lines.flatMap((line) => line.words),
-    ),
+function isOcrWord(value: unknown): value is Tesseract.Word {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as {
+    text?: unknown;
+    confidence?: unknown;
+    bbox?: {
+      x0?: unknown;
+      y0?: unknown;
+      x1?: unknown;
+      y1?: unknown;
+    };
+  };
+  return (
+    typeof candidate.text === "string" &&
+    typeof candidate.confidence === "number" &&
+    Number.isFinite(candidate.confidence) &&
+    typeof candidate.bbox === "object" &&
+    candidate.bbox !== null &&
+    [
+      candidate.bbox.x0,
+      candidate.bbox.y0,
+      candidate.bbox.x1,
+      candidate.bbox.y1,
+    ].every((coordinate) => (
+      typeof coordinate === "number" && Number.isFinite(coordinate)
+    ))
   );
+}
+
+export function flattenOcrWords(blocks: unknown): Tesseract.Word[] {
+  if (!Array.isArray(blocks)) return [];
+
+  const words: Tesseract.Word[] = [];
+  for (const block of blocks) {
+    if (typeof block !== "object" || block === null) continue;
+    const paragraphs = (block as { paragraphs?: unknown }).paragraphs;
+    if (!Array.isArray(paragraphs)) continue;
+
+    for (const paragraph of paragraphs) {
+      if (typeof paragraph !== "object" || paragraph === null) continue;
+      const lines = (paragraph as { lines?: unknown }).lines;
+      if (!Array.isArray(lines)) continue;
+
+      for (const line of lines) {
+        if (typeof line !== "object" || line === null) continue;
+        const lineWords = (line as { words?: unknown }).words;
+        if (!Array.isArray(lineWords)) continue;
+        words.push(...lineWords.filter(isOcrWord));
+      }
+    }
+  }
+  return words;
 }
 
 function addInvisibleOcrWord(

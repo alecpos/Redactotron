@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/vendor-browser-assets.mjs",
     "test:pii": "node --experimental-strip-types --test tests/pii-recognizers.test.mts",
+    "test:document-import": "node --experimental-strip-types --test tests/document-importer.test.mts",
     "test:local-redaction": "node --experimental-strip-types --test tests/local-redaction-engine.test.mts",
     "test:network-boundary": "node --experimental-strip-types --test tests/network-boundary.test.mts"
   },
