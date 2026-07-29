@@ -171,18 +171,22 @@ export function findingToBlock(
   page: PageTextMap,
   finding: PiiFinding,
 ): RedactionBlock | null {
-  const rects = page.segments
+  const overlaps = page.segments
     .filter(
       (segment) => segment.end > finding.start && segment.start < finding.end,
     )
-    .map((segment) =>
-      rectForOverlap(
+    .map((segment) => ({
+      rect: rectForOverlap(
         segment,
         Math.max(segment.start, finding.start),
         Math.min(segment.end, finding.end),
       ),
-    )
-    .filter((rect) => rect.x1 > rect.x0 && rect.y1 > rect.y0);
+      sourceFontSize: segment.height,
+    }))
+    .filter(
+      ({ rect }) => rect.x1 > rect.x0 && rect.y1 > rect.y0,
+    );
+  const rects = overlaps.map(({ rect }) => rect);
 
   if (!rects.length) return null;
   const labelRectIndex = rects.reduce(
@@ -200,6 +204,10 @@ export function findingToBlock(
     pageIndex: page.pageIndex,
     rects,
     labelRectIndex,
+    sourceFontSize:
+      overlaps[labelRectIndex].sourceFontSize > 0
+        ? overlaps[labelRectIndex].sourceFontSize
+        : null,
     replacement: "REDACTED",
     appearance: "text-replacement",
     suggestion: {

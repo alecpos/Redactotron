@@ -18,6 +18,7 @@ export const redactionBlockSchema = z.object({
   pageIndex: z.number().int().min(0).max(99),
   rects: z.array(pdfRectSchema).min(1).max(100),
   labelRectIndex: z.number().int().min(0),
+  sourceFontSize: finite.positive().max(512).nullable(),
   replacement: z.literal("REDACTED"),
   appearance: z.literal("text-replacement"),
 });

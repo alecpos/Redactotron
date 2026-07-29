@@ -26,6 +26,8 @@ type ScreenRect = {
   height: number;
 };
 
+const REPLACEMENT_WIDTH_EM = 5.56;
+
 type PdfPageProps = {
   document: PDFDocumentProxy;
   pageIndex: number;
@@ -63,22 +65,131 @@ function toScreenRect(
   };
 }
 
-function replacementFontSize(rect: ScreenRect) {
-  // Helvetica Bold "REDACTED" is roughly 5.7 em wide. Keep the label inside
-  // the user's exact rectangle instead of expanding into neighboring text.
-  const major = Math.max(rect.width, rect.height);
-  const minor = Math.min(rect.width, rect.height);
-  return Math.max(
-    4,
-    Math.min(10, (major * 0.9) / 5.7, minor / 1.25),
+function boundingScreenRect(rects: ScreenRect[]): ScreenRect {
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(
+    ...rects.map((rect) => rect.left + rect.width),
   );
+  const bottom = Math.max(
+    ...rects.map((rect) => rect.top + rect.height),
+  );
+
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  };
 }
 
-function replacementLabelStyle(rect: ScreenRect) {
+function replacementLabelStyle(
+  rect: ScreenRect,
+  sourceFontSize: number | null,
+  viewportScale: number,
+) {
+  const vertical = rect.height > rect.width;
+  const availableWidth = vertical ? rect.height : rect.width;
+  const availableHeight = vertical ? rect.width : rect.height;
+
+  // Searchable selections retain one of their original font sizes. Scanned
+  // areas have no source metrics, so they continue to use the fitted fallback.
+  const fontSize =
+    sourceFontSize === null
+      ? Math.max(
+          4,
+          Math.min(
+            10,
+            (availableWidth * 0.9) / 6,
+            availableHeight / 1.25,
+          ),
+        )
+      : sourceFontSize * viewportScale;
+  const horizontalScale =
+    sourceFontSize === null
+      ? 1
+      : Math.min(
+          1,
+          Math.max(
+            0.05,
+            (availableWidth * 0.9) /
+              (fontSize * REPLACEMENT_WIDTH_EM),
+          ),
+        );
+  const transforms = [
+    vertical ? "rotate(-90deg)" : "",
+    horizontalScale < 1 ? `scaleX(${horizontalScale})` : "",
+  ].filter(Boolean);
+
   return {
-    fontSize: replacementFontSize(rect),
-    transform: rect.height > rect.width ? "rotate(90deg)" : undefined,
+    fontSize,
+    transform: transforms.length ? transforms.join(" ") : undefined,
   };
+}
+
+function overlapArea(first: DOMRect, second: DOMRect) {
+  const width =
+    Math.min(first.right, second.right) -
+    Math.max(first.left, second.left);
+  const height =
+    Math.min(first.bottom, second.bottom) -
+    Math.max(first.top, second.top);
+  return Math.max(0, width) * Math.max(0, height);
+}
+
+function sourceFontSizeForRects(
+  textLayer: HTMLDivElement,
+  rects: DOMRect[],
+  viewportScale: number,
+  range?: Range,
+) {
+  if (rects.length === 0) return null;
+
+  const scores = new Map<number, number>();
+
+  for (const span of textLayer.querySelectorAll("span")) {
+    if (range && !range.intersectsNode(span)) continue;
+
+    const spanRect = span.getBoundingClientRect();
+    const score = rects.reduce(
+      (total, rect) => total + overlapArea(spanRect, rect),
+      0,
+    );
+    if (score <= 0) continue;
+
+    const screenFontSize = Number.parseFloat(
+      window.getComputedStyle(span).fontSize,
+    );
+    const sourceFontSize = screenFontSize / viewportScale;
+    if (!Number.isFinite(sourceFontSize) || sourceFontSize <= 0) {
+      continue;
+    }
+
+    const normalizedSize = Math.round(sourceFontSize * 1000) / 1000;
+    scores.set(
+      normalizedSize,
+      (scores.get(normalizedSize) ?? 0) + score,
+    );
+  }
+
+  const rankedSizes = [...scores.entries()].sort(
+    (first, second) => second[1] - first[1],
+  );
+  const labelRect = rects.reduce(
+    (largest, rect) =>
+      rect.width * rect.height > largest.width * largest.height
+        ? rect
+        : largest,
+  );
+  const availableHeight =
+    labelRect.height > labelRect.width
+      ? labelRect.width
+      : labelRect.height;
+  return (
+    rankedSizes.find(
+      ([fontSize]) => fontSize * viewportScale <= availableHeight,
+    )?.[0] ?? null
+  );
 }
 
 function mergeLineRects(rects: DOMRect[]): DOMRect[] {
@@ -226,7 +337,7 @@ export function PdfPage({
   }, [document, onTextLayerStatus, pageIndex, scale]);
 
   const createBlock = useCallback(
-    (rects: PdfRect[]) => {
+    (rects: PdfRect[], sourceFontSize: number | null) => {
       const valid = rects.filter(
         (rect) =>
           [rect.x0, rect.y0, rect.x1, rect.y1].every(Number.isFinite) &&
@@ -250,6 +361,7 @@ export function PdfPage({
         pageIndex,
         rects: valid,
         labelRectIndex,
+        sourceFontSize,
         replacement: "REDACTED",
         appearance: "text-replacement",
       });
@@ -277,8 +389,9 @@ export function PdfPage({
     }
 
     const pageBounds = pageRootRef.current.getBoundingClientRect();
+    const range = selection.getRangeAt(0);
     const clientRects = Array.from(
-      selection.getRangeAt(0).getClientRects(),
+      range.getClientRects(),
     ).filter(
       (rect) =>
         rect.width > 1 &&
@@ -306,7 +419,15 @@ export function PdfPage({
       return normalizePdfRect([...first, ...second]);
     });
 
-    createBlock(pdfRects);
+    createBlock(
+      pdfRects,
+      sourceFontSizeForRects(
+        textLayer,
+        clientRects,
+        viewport.scale,
+        range,
+      ),
+    );
     selection.removeAllRanges();
   }, [createBlock, mode, viewport]);
 
@@ -346,7 +467,27 @@ export function PdfPage({
 
     const first = viewport.convertToPdfPoint(dragStart.x, dragStart.y);
     const second = viewport.convertToPdfPoint(end.x, end.y);
-    createBlock([normalizePdfRect([...first, ...second])]);
+    const pageBounds = pageRootRef.current?.getBoundingClientRect();
+    const textLayer = textLayerRef.current;
+    const sourceFontSize =
+      pageBounds && textLayer
+        ? sourceFontSizeForRects(
+            textLayer,
+            [
+              new DOMRect(
+                pageBounds.left + Math.min(dragStart.x, end.x),
+                pageBounds.top + Math.min(dragStart.y, end.y),
+                width,
+                height,
+              ),
+            ],
+            viewport.scale,
+          )
+        : null;
+    createBlock(
+      [normalizePdfRect([...first, ...second])],
+      sourceFontSize,
+    );
   };
 
   const draftScreenRect = useMemo<ScreenRect | null>(() => {
@@ -396,52 +537,72 @@ export function PdfPage({
 
         <div className="redaction-layer" aria-live="polite">
           {viewport &&
-            blocks.flatMap((block) =>
-              block.rects.map((rect, index) => {
-                const screen = toScreenRect(viewport, rect);
-                const isLabel = index === block.labelRectIndex;
-                const selected = block.id === selectedBlockId;
-                return (
-                  <div
-                    key={`${block.id}-${index}`}
-                    className={`redaction-mark ${
-                      block.suggestion ? "suggestion" : ""
-                    } ${selected ? "selected" : ""}`}
-                    style={screen}
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      onSelectBlock(block.id);
-                    }}
-                  >
-                    {isLabel && (
-                      <>
+            blocks.map((block) => {
+              const screenRects = block.rects.map((rect) =>
+                toScreenRect(viewport, rect),
+              );
+              const bounds = boundingScreenRect(screenRects);
+              const selected = block.id === selectedBlockId;
+
+              return (
+                <div
+                  key={block.id}
+                  className={`redaction-block ${selected ? "selected" : ""}`}
+                  style={bounds}
+                >
+                  {screenRects.map((screen, index) => (
+                    <div
+                      key={`${block.id}-${index}`}
+                      className={`redaction-mark ${
+                        block.suggestion ? "suggestion" : ""
+                      }`}
+                      style={{
+                        left: screen.left - bounds.left,
+                        top: screen.top - bounds.top,
+                        width: screen.width,
+                        height: screen.height,
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        onSelectBlock(block.id);
+                      }}
+                    >
+                      {index === block.labelRectIndex && (
                         <span
                           className="redaction-label"
-                          style={replacementLabelStyle(screen)}
+                          style={replacementLabelStyle(
+                            screen,
+                            block.sourceFontSize,
+                            viewport.scale,
+                          )}
                         >
                           REDACTED
                         </span>
-                        <button
-                          type="button"
-                          className="remove-mark"
-                          aria-label={`Remove redaction on page ${pageIndex + 1}`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={() => onRemoveBlock(block.id)}
-                        >
-                          <CloseIcon />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                );
-              }),
-            )}
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="remove-mark"
+                    aria-label={`Remove redaction on page ${pageIndex + 1}`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => onRemoveBlock(block.id)}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              );
+            })}
 
           {draftScreenRect && (
             <div className="redaction-mark drawing" style={draftScreenRect}>
               <span
                 className="redaction-label"
-                style={replacementLabelStyle(draftScreenRect)}
+                style={replacementLabelStyle(
+                  draftScreenRect,
+                  null,
+                  viewport?.scale ?? 1,
+                )}
               >
                 REDACTED
               </span>
