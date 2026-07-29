@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { RedactotronThemeProvider } from "@/lib/ui/theme-system";
 import "./globals.css";
+import "./responsive-theme.css";
 
 export const metadata: Metadata = {
   title: "Redactotron - Permanent PDF redaction",
@@ -14,7 +16,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <RedactotronThemeProvider>{children}</RedactotronThemeProvider>
+      </body>
     </html>
   );
 }
