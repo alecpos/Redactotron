@@ -27,6 +27,44 @@
   --rt-queue-gap: 10px;
   --rt-dialog-padding: 40px;
   --rt-dialog-max: 600px;
+  --rt-color-document: #ffffff;
+  --rt-stroke-standard: 1px;
+  --rt-stroke-strong: 2px;
+  --rt-stroke-icon: 2.4px;
+  --rt-size-icon-frame: 32px;
+  --rt-size-upload-icon: 72px;
+  --rt-size-badge: 28px;
+  --rt-size-touch-target: 44px;
+  --rt-size-divider: 1px;
+  --rt-radius-icon: 16px;
+  --rt-space-half: 2px;
+  --rt-space-one-half: 6px;
+  --rt-component-brand-mark-size: 43px;
+  --rt-component-brand-mark-type-size: 24px;
+  --rt-component-brand-mark-line-height: 28px;
+  --rt-component-upload-preview-width: 520px;
+  --rt-component-document-preview-width: 520px;
+  --rt-component-queue-preview-width: 300px;
+  --rt-component-dialog-preview-width: 600px;
+  --rt-component-dialog-icon-size: 56px;
+  --rt-component-responsive-view-preview-height: 260px;
+  --rt-component-dialog-glyph-size: 22px;
+  --rt-component-remove-glyph-size: 18px;
+  --rt-component-note-padding-x: 14px;
+  --rt-component-note-padding-y: 12px;
+  --rt-layout-screen-padding-top: 26px;
+  --rt-layout-screen-padding-bottom: 32px;
+  --rt-layout-editor-header-height: 65px;
+  --rt-layout-editor-toolbar-height: 54px;
+  --rt-layout-editor-header-padding-x: 20px;
+  --rt-layout-editor-toolbar-padding-x: 18px;
+  --rt-component-tool-padding-x: 12px;
+  --rt-component-tool-padding-y: 9px;
+  --rt-component-sidebar-title-size: 21px;
+  --rt-component-sidebar-title-line-height: 26px;
+  --rt-component-dialog-flow-height: 700px;
+  --rt-component-dialog-canvas-height: 580px;
+  --rt-component-upload-card-min-height: 380px;
   min-height: 100vh;
 }
 
@@ -53,6 +91,32 @@
   --rt-queue-gap: 10px;
   --rt-dialog-padding: 32px;
   --rt-dialog-max: 520px;
+  --rt-component-brand-mark-size: 38px;
+  --rt-component-brand-mark-type-size: 22px;
+  --rt-component-brand-mark-line-height: 26px;
+  --rt-component-upload-preview-width: 440px;
+  --rt-component-document-preview-width: 460px;
+  --rt-component-queue-preview-width: 250px;
+  --rt-component-dialog-preview-width: 520px;
+  --rt-component-dialog-icon-size: 56px;
+  --rt-component-responsive-view-preview-height: 260px;
+  --rt-component-dialog-glyph-size: 22px;
+  --rt-component-remove-glyph-size: 18px;
+  --rt-component-note-padding-x: 14px;
+  --rt-component-note-padding-y: 12px;
+  --rt-layout-screen-padding-top: 26px;
+  --rt-layout-screen-padding-bottom: 32px;
+  --rt-layout-editor-header-height: 65px;
+  --rt-layout-editor-toolbar-height: 54px;
+  --rt-layout-editor-header-padding-x: 20px;
+  --rt-layout-editor-toolbar-padding-x: 18px;
+  --rt-component-tool-padding-x: 12px;
+  --rt-component-tool-padding-y: 9px;
+  --rt-component-sidebar-title-size: 21px;
+  --rt-component-sidebar-title-line-height: 26px;
+  --rt-component-dialog-flow-height: 640px;
+  --rt-component-dialog-canvas-height: 520px;
+  --rt-component-upload-card-min-height: 348px;
 }
 
 .redactotron-theme[data-layout="small"],
@@ -78,6 +142,32 @@
   --rt-queue-gap: 12px;
   --rt-dialog-padding: 24px;
   --rt-dialog-max: 358px;
+  --rt-component-brand-mark-size: 32px;
+  --rt-component-brand-mark-type-size: 19px;
+  --rt-component-brand-mark-line-height: 22px;
+  --rt-component-upload-preview-width: 358px;
+  --rt-component-document-preview-width: 358px;
+  --rt-component-queue-preview-width: 358px;
+  --rt-component-dialog-preview-width: 358px;
+  --rt-component-dialog-icon-size: 48px;
+  --rt-component-responsive-view-preview-height: 240px;
+  --rt-component-dialog-glyph-size: 22px;
+  --rt-component-remove-glyph-size: 18px;
+  --rt-component-note-padding-x: 14px;
+  --rt-component-note-padding-y: 12px;
+  --rt-layout-screen-padding-top: 18px;
+  --rt-layout-screen-padding-bottom: 20px;
+  --rt-layout-editor-header-height: 59px;
+  --rt-layout-editor-toolbar-height: 51px;
+  --rt-layout-editor-header-padding-x: 10px;
+  --rt-layout-editor-toolbar-padding-x: 8px;
+  --rt-component-tool-padding-x: 8px;
+  --rt-component-tool-padding-y: 8px;
+  --rt-component-sidebar-title-size: 15px;
+  --rt-component-sidebar-title-line-height: 19px;
+  --rt-component-dialog-flow-height: 600px;
+  --rt-component-dialog-canvas-height: 480px;
+  --rt-component-upload-card-min-height: 324px;
 }
 
 .redactotron-theme .button {
@@ -88,7 +178,7 @@
 
 .redactotron-theme .landing-header,
 .redactotron-theme .landing-footer {
-  width: min(1210px, calc(100% - (var(--rt-screen-gutter) * 2)));
+  width: min(var(--rt-viewport-width), calc(100% - (var(--rt-screen-gutter) * 2)));
 }
 
 .redactotron-theme .hero {
@@ -142,7 +232,7 @@
 }
 
 .redactotron-theme[data-layout="medium"] .upload-card {
-  min-height: 348px;
+  min-height: var(--rt-component-upload-card-min-height);
 }
 
 .redactotron-theme[data-layout="medium"] .redaction-sidebar {
@@ -163,7 +253,7 @@
 }
 
 .redactotron-theme[data-layout="small"] .upload-card {
-  min-height: 324px;
+  min-height: var(--rt-component-upload-card-min-height);
 }
 
 .redactotron-theme[data-layout="small"] .editor-body {
@@ -181,7 +271,102 @@
 }
 
 .redactotron-theme[data-layout="full"] .upload-card {
-  min-height: 380px;
+  min-height: var(--rt-component-upload-card-min-height);
+}
+
+
+.redactotron-theme .brand-mark,
+.redactotron-theme .brand.compact .brand-mark {
+  width: var(--rt-component-brand-mark-size);
+  height: var(--rt-component-brand-mark-size);
+  border-width: var(--rt-stroke-strong);
+  font-size: var(--rt-component-brand-mark-type-size);
+  line-height: var(--rt-component-brand-mark-line-height);
+}
+
+.redactotron-theme .upload-icon {
+  width: var(--rt-size-upload-icon);
+  height: var(--rt-size-upload-icon);
+  border-width: var(--rt-stroke-standard);
+  border-radius: var(--rt-radius-icon);
+}
+
+.redactotron-theme .upload-icon svg {
+  width: var(--rt-size-icon-frame);
+  height: var(--rt-size-icon-frame);
+  stroke-width: var(--rt-stroke-icon);
+}
+
+.redactotron-theme .editor-shell {
+  grid-template-rows:
+    var(--rt-layout-editor-header-height)
+    var(--rt-layout-editor-toolbar-height)
+    minmax(0, 1fr);
+}
+
+.redactotron-theme .editor-header {
+  min-width: 0;
+  padding-inline: var(--rt-layout-editor-header-padding-x);
+}
+
+.redactotron-theme .editor-toolbar {
+  min-width: 0;
+  padding-inline: var(--rt-layout-editor-toolbar-padding-x);
+}
+
+.redactotron-theme .tool-button {
+  min-width: 0;
+  padding: var(--rt-component-tool-padding-y) var(--rt-component-tool-padding-x);
+}
+
+.redactotron-theme .toolbar-divider {
+  width: var(--rt-size-divider);
+}
+
+.redactotron-theme .sidebar-heading h2 {
+  font-size: var(--rt-component-sidebar-title-size);
+  line-height: var(--rt-component-sidebar-title-line-height);
+}
+
+.redactotron-theme .redaction-list,
+.redactotron-theme .redaction-list li,
+.redactotron-theme .redaction-jump {
+  width: 100%;
+  min-width: 0;
+}
+
+.redactotron-theme .queue-number {
+  width: var(--rt-size-badge);
+  min-width: var(--rt-size-badge);
+  height: var(--rt-size-badge);
+}
+
+.redactotron-theme .remove-queue-item {
+  width: var(--rt-size-touch-target);
+  min-width: var(--rt-size-touch-target);
+  height: var(--rt-size-touch-target);
+}
+
+.redactotron-theme .remove-queue-item svg {
+  width: var(--rt-component-remove-glyph-size);
+  height: var(--rt-component-remove-glyph-size);
+}
+
+.redactotron-theme .dialog-icon {
+  width: var(--rt-component-dialog-icon-size);
+  height: var(--rt-component-dialog-icon-size);
+  border-width: var(--rt-stroke-standard);
+}
+
+.redactotron-theme .dialog-icon svg {
+  width: var(--rt-component-dialog-glyph-size);
+  height: var(--rt-component-dialog-glyph-size);
+}
+
+.redactotron-theme .dialog-note {
+  padding:
+    var(--rt-component-note-padding-y)
+    var(--rt-component-note-padding-x);
 }
 
 @media (max-width: 1024px) {
