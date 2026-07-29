@@ -318,6 +318,71 @@ a:focus-visible {
   transform: scale(1.01) rotate(0.2deg);
 }
 
+.global-drop-overlay {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  inset: 0;
+  place-items: center;
+  border: 14px solid rgba(205, 255, 65, 0.92);
+  background: rgba(247, 247, 239, 0.86);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.global-drop-overlay::after {
+  position: absolute;
+  inset: 28px;
+  border: 2px dashed var(--ink);
+  border-radius: 24px 5px 24px 5px;
+  content: "";
+}
+
+.global-drop-message {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: min(420px, calc(100vw - 72px));
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--ink);
+  border-radius: 24px 5px 24px 5px;
+  background: var(--paper);
+  box-shadow: 10px 10px 0 var(--ink);
+  padding: 36px;
+  text-align: center;
+}
+
+.global-drop-message strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(24px, 4vw, 38px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.global-drop-message > span:last-child {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.global-drop-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  margin-bottom: 8px;
+  border: 1px solid var(--ink);
+  border-radius: 17px 4px 17px 4px;
+  background: var(--acid);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.global-drop-icon svg {
+  width: 27px;
+  height: 27px;
+}
+
 .upload-icon {
   display: grid;
   width: 72px;
@@ -352,17 +417,27 @@ a:focus-visible {
 .upload-button {
   position: relative;
   min-width: 172px;
-  overflow: hidden;
   margin-top: 26px;
+  overflow: hidden;
 }
 
-.file-input {
+.native-file-fallback {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   opacity: 0;
   cursor: pointer;
+  font-size: 100px;
+}
+
+.upload-card > .picker-status {
+  z-index: 1;
+  min-height: 18px;
+  margin-top: 14px;
+  color: #4f5854;
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .upload-limit {
@@ -549,6 +624,16 @@ a:focus-visible {
   box-shadow: 2px 2px 0 var(--ink);
 }
 
+.scan-button {
+  border-color: #a9b985;
+  background: #f4f9df;
+}
+
+.scan-button:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--acid);
+}
+
 .tool-button svg {
   width: 17px;
   height: 17px;
@@ -660,6 +745,25 @@ kbd {
   height: 26px;
 }
 
+.scan-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scan-progress svg {
+  width: 16px;
+  height: 16px;
+  animation: scan-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes scan-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
+}
+
 .pages {
   display: flex;
   min-width: max-content;
@@ -707,10 +811,20 @@ kbd {
 }
 
 .textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(
+    var(--total-scale-factor, 1) * var(--min-font-size)
+  );
+  --min-font-size-inv: calc(1 / var(--min-font-size));
   position: absolute;
   z-index: 1;
   inset: 0;
   overflow: clip;
+  --min-font-size: 1;
+  --text-scale-factor: calc(
+    var(--total-scale-factor) * var(--min-font-size)
+  );
+  --min-font-size-inv: calc(1 / var(--min-font-size));
   line-height: 1;
   opacity: 1;
   text-align: initial;
@@ -726,6 +840,23 @@ kbd {
   cursor: text;
   transform-origin: 0 0;
   white-space: pre;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform:
+    rotate(var(--rotate))
+    scaleX(var(--scale-x))
+    scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
 }
 
 .pdf-page:not(.area-mode) .textLayer,
@@ -773,27 +904,49 @@ kbd {
   transform: translateX(-50%);
 }
 
+.redaction-block {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 2px;
+  min-height: 2px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.redaction-block::after {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid #151918;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  transition: box-shadow 100ms ease;
+}
+
+.redaction-block:hover::after,
+.redaction-block.selected::after {
+  box-shadow: 0 0 0 3px rgba(190, 229, 33, 0.82);
+}
+
 .redaction-mark {
   position: absolute;
   display: flex;
+  box-sizing: border-box;
   min-width: 2px;
   min-height: 2px;
   align-items: center;
   justify-content: center;
   overflow: visible;
-  border: 1px solid #151918;
+  border: 0;
   background: #fff;
   color: #151918;
   pointer-events: auto;
-  transition:
-    background 100ms ease,
-    box-shadow 100ms ease;
 }
 
-.redaction-mark:hover,
-.redaction-mark.selected {
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(190, 229, 33, 0.82);
+.redaction-mark.suggestion {
+  border-style: dashed;
+  border-color: #6f841d;
+  background: #f4f9df;
 }
 
 .redaction-mark.drawing {
@@ -803,14 +956,17 @@ kbd {
 }
 
 .redaction-label {
+  display: inline-block;
+  flex: none;
   overflow: hidden;
-  padding: 0 3px;
+  padding: 0;
   color: #151918;
   font-family: Helvetica, Arial, sans-serif;
   font-weight: 900;
   letter-spacing: 0;
   line-height: 1;
   text-overflow: clip;
+  transform-origin: center;
   white-space: nowrap;
 }
 
@@ -1301,6 +1457,19 @@ kbd {
     font-size: 10px;
   }
 
+  .scan-button {
+    width: 37px;
+    justify-content: center;
+    overflow: hidden;
+    color: transparent;
+    gap: 0;
+  }
+
+  .scan-button svg {
+    position: absolute;
+    color: var(--ink);
+  }
+
   .editor-toolbar {
     padding: 0 7px;
   }
@@ -1370,6 +1539,8 @@ kbd {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

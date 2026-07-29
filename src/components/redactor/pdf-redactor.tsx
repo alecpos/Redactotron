@@ -3,9 +3,9 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
-  type DragEvent,
 } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
 import {
@@ -16,6 +16,7 @@ import {
   LockIcon,
   RedoIcon,
   ShieldIcon,
+  SparkIcon,
   TextSelectIcon,
   TrashIcon,
   UndoIcon,
@@ -26,11 +27,17 @@ import {
 import Link from "next/link";
 import { ApplyDialog } from "@/components/redactor/apply-dialog";
 import { PdfPage } from "@/components/redactor/pdf-page";
+import {
+  SUPPORTED_DOCUMENT_LABEL,
+  importDocumentAsPdf,
+  type DocumentKind,
+} from "@/lib/importers/document-to-pdf";
 import type {
   RedactionBlock,
   ToolMode,
 } from "@/lib/pdf/types";
 import { redactionManifestSchema } from "@/lib/pdf/redaction-schema";
+import { mergeSuggestionBlocks } from "@/lib/pii/suggestions";
 
 const MAX_FILE_BYTES = 4_000_000;
 const MAX_PAGES = 100;
@@ -44,12 +51,15 @@ function formatBytes(bytes: number) {
 }
 
 function outputFilename(name: string) {
-  const withoutExtension = name.replace(/\.pdf$/i, "");
+  const withoutExtension = name.replace(/\.[^.]+$/i, "");
   return `${withoutExtension || "document"}-redacted.pdf`;
 }
 
 export function PdfRedactor() {
+  const dragDepthRef = useRef(0);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [documentKind, setDocumentKind] = useState<DocumentKind | null>(null);
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -62,24 +72,40 @@ export function PdfRedactor() {
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [pageTextStatus, setPageTextStatus] = useState<
     Record<number, boolean>
   >({});
+  const blocksRef = useRef<RedactionBlock[]>([]);
+  const documentRef = useRef<PDFDocumentProxy | null>(null);
+  const scanGenerationRef = useRef(0);
+  const scanningRef = useRef(false);
+  const [pickerStatus, setPickerStatus] = useState<string | null>(null);
 
   const commitBlocks = useCallback(
     (next: RedactionBlock[]) => {
-      setPast((history) => [...history.slice(-49), blocks]);
+      setPast((history) => [...history.slice(-49), blocksRef.current]);
+      blocksRef.current = next;
       setBlocks(next);
       setFuture([]);
     },
-    [blocks],
+    [],
   );
 
   const resetDocument = useCallback(async () => {
-    await document?.loadingTask.destroy();
+    scanGenerationRef.current += 1;
+    scanningRef.current = false;
+    const currentDocument = documentRef.current;
+    documentRef.current = null;
+    setScanning(false);
+    await currentDocument?.loadingTask.destroy();
     setDocument(null);
+    setSourceFile(null);
     setFile(null);
+    blocksRef.current = [];
+    setDocumentKind(null);
     setBlocks([]);
     setPast([]);
     setFuture([]);
@@ -88,52 +114,66 @@ export function PdfRedactor() {
     setLoadState("idle");
     setSelectedBlockId(null);
     setPageTextStatus({});
-  }, [document]);
+    setScanning(false);
+    setScanProgress(null);
+  }, []);
 
   const loadFile = useCallback(
     async (nextFile: File) => {
+      const loadGeneration = scanGenerationRef.current + 1;
+      scanGenerationRef.current = loadGeneration;
+      scanningRef.current = false;
       setError(null);
       setNotice(null);
-
-      if (
-        nextFile.type !== "application/pdf" &&
-        !nextFile.name.toLowerCase().endsWith(".pdf")
-      ) {
-        setError("Choose a PDF file.");
-        setLoadState("error");
-        return;
-      }
-      if (nextFile.size > MAX_FILE_BYTES) {
-        setError(
-          `This Vercel-ready MVP accepts PDFs up to ${formatBytes(MAX_FILE_BYTES)}. Add Private Blob before raising the limit.`,
-        );
-        setLoadState("error");
-        return;
-      }
-
-      const signature = await nextFile.slice(0, 5).text();
-      if (signature !== "%PDF-") {
-        setError("That file does not have a valid PDF signature.");
-        setLoadState("error");
-        return;
-      }
-
       setLoadState("loading");
+
       try {
-        await document?.loadingTask.destroy();
+        if (nextFile.size > MAX_FILE_BYTES) {
+          throw new Error(
+            `Documents are limited to ${formatBytes(MAX_FILE_BYTES)} in this version.`,
+          );
+        }
+
+        const imported = await importDocumentAsPdf(
+          nextFile,
+          ({ message }) => setPickerStatus(message),
+        );
+        const workingFile = imported.pdfFile;
+        if (workingFile.size > MAX_FILE_BYTES) {
+          throw new Error(
+            `The searchable PDF is larger than ${formatBytes(MAX_FILE_BYTES)}. Use a smaller source file.`,
+          );
+        }
+
+        const signature = await workingFile.slice(0, 5).text();
+        if (signature !== "%PDF-") {
+          throw new Error("The document could not be converted into a valid PDF.");
+        }
+
+        const currentDocument = documentRef.current;
+        documentRef.current = null;
+        await currentDocument?.loadingTask.destroy();
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-        const data = new Uint8Array(await nextFile.arrayBuffer());
+        const data = new Uint8Array(await workingFile.arrayBuffer());
         const task = pdfjs.getDocument({ data });
         const nextDocument = await task.promise;
 
+        if (scanGenerationRef.current !== loadGeneration) {
+          await nextDocument.loadingTask.destroy();
+          return;
+        }
         if (nextDocument.numPages > MAX_PAGES) {
           await nextDocument.loadingTask.destroy();
           throw new Error(`PDFs are limited to ${MAX_PAGES} pages.`);
         }
 
-        setFile(nextFile);
+        documentRef.current = nextDocument;
+        setSourceFile(nextFile);
+        setFile(workingFile);
+        setDocumentKind(imported.kind);
         setDocument(nextDocument);
+        blocksRef.current = [];
         setBlocks([]);
         setPast([]);
         setFuture([]);
@@ -141,43 +181,137 @@ export function PdfRedactor() {
         setMode("text");
         setSelectedBlockId(null);
         setPageTextStatus({});
+        setScanning(false);
+        setScanProgress(null);
+        setNotice(imported.notice);
         setLoadState("ready");
+        setPickerStatus(null);
       } catch (caught) {
         setLoadState("error");
         setError(
           caught instanceof Error
             ? caught.message
-            : "The PDF could not be opened.",
+            : "The document could not be opened.",
         );
       }
     },
-    [document],
+    [],
   );
+
+  useEffect(() => {
+    if (document || loadState === "loading") return;
+
+    const isFileDrag = (event: globalThis.DragEvent) => {
+      const transfer = event.dataTransfer;
+      if (!transfer) return false;
+      if (Array.from(transfer.types ?? []).includes("Files")) return true;
+      if (transfer.files.length > 0) return true;
+
+      for (let index = 0; index < transfer.items.length; index += 1) {
+        if (transfer.items[index].kind === "file") return true;
+      }
+      return false;
+    };
+
+    const onDragEnter = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setIsDraggingFile(true);
+      setPickerStatus("Document detected — release anywhere to open it.");
+    };
+
+    const onDragOver = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setIsDraggingFile(true);
+    };
+
+    const onDragLeave = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setIsDraggingFile(false);
+    };
+
+    const onDrop = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragDepthRef.current = 0;
+      setIsDraggingFile(false);
+
+      const transfer = event.dataTransfer;
+      const files = Array.from(transfer?.files ?? []);
+      let nextFile =
+        files.find(
+          (candidate) =>
+            /\.(pdf|docx|txt|png|jpe?g)$/i.test(candidate.name),
+        ) ??
+        files[0] ??
+        null;
+
+      if (!nextFile && transfer?.items) {
+        for (let index = 0; index < transfer.items.length; index += 1) {
+          const item = transfer.items[index];
+          if (item.kind !== "file") continue;
+          const candidate = item.getAsFile();
+          if (!candidate) continue;
+          nextFile = candidate;
+          if (/\.(pdf|docx|txt|png|jpe?g)$/i.test(candidate.name)) {
+            break;
+          }
+        }
+      }
+
+      if (!nextFile) {
+        setPickerStatus(
+          "The browser detected the drop but did not provide the file. Use Choose document instead.",
+        );
+        return;
+      }
+
+      setPickerStatus(`Drop received: ${nextFile.name}. Opening…`);
+      void loadFile(nextFile);
+    };
+
+    window.addEventListener("dragenter", onDragEnter, true);
+    window.addEventListener("dragover", onDragOver, true);
+    window.addEventListener("dragleave", onDragLeave, true);
+    window.addEventListener("drop", onDrop, true);
+
+    return () => {
+      dragDepthRef.current = 0;
+      window.removeEventListener("dragenter", onDragEnter, true);
+      window.removeEventListener("dragover", onDragOver, true);
+      window.removeEventListener("dragleave", onDragLeave, true);
+      window.removeEventListener("drop", onDrop, true);
+    };
+  }, [document, loadFile, loadState]);
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
-    if (nextFile) void loadFile(nextFile);
+    if (nextFile) {
+      setPickerStatus(
+        `Selected ${nextFile.name || "document"}. Opening…`,
+      );
+      void loadFile(nextFile);
+    }
     event.target.value = "";
-  };
-
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsDraggingFile(false);
-    const nextFile = event.dataTransfer.files?.[0];
-    if (nextFile) void loadFile(nextFile);
   };
 
   const addBlock = useCallback(
     (block: RedactionBlock) => {
-      if (blocks.length >= MAX_BLOCKS) {
+      const current = blocksRef.current;
+      if (current.length >= MAX_BLOCKS) {
         setError(`A document can contain up to ${MAX_BLOCKS} redaction blocks.`);
         return;
       }
-      commitBlocks([...blocks, block]);
+      commitBlocks([...current, block]);
       setSelectedBlockId(block.id);
       setNotice(null);
     },
-    [blocks, commitBlocks],
+    [commitBlocks],
   );
 
   const handleTextLayerStatus = useCallback(
@@ -199,29 +333,149 @@ export function PdfRedactor() {
 
   const removeBlock = useCallback(
     (id: string) => {
-      commitBlocks(blocks.filter((block) => block.id !== id));
+      commitBlocks(blocksRef.current.filter((block) => block.id !== id));
       setSelectedBlockId((selected) => (selected === id ? null : selected));
     },
-    [blocks, commitBlocks],
+    [commitBlocks],
   );
 
   const undo = useCallback(() => {
     const previous = past.at(-1);
     if (!previous) return;
-    setFuture((history) => [blocks, ...history].slice(0, 50));
+    setFuture((history) => [blocksRef.current, ...history].slice(0, 50));
+    blocksRef.current = previous;
     setBlocks(previous);
     setPast((history) => history.slice(0, -1));
     setSelectedBlockId(null);
-  }, [blocks, past]);
+  }, [past]);
 
   const redo = useCallback(() => {
     const next = future[0];
     if (!next) return;
-    setPast((history) => [...history, blocks].slice(-50));
+    setPast((history) => [...history, blocksRef.current].slice(-50));
+    blocksRef.current = next;
     setBlocks(next);
     setFuture((history) => history.slice(1));
     setSelectedBlockId(null);
-  }, [blocks, future]);
+  }, [future]);
+
+  const scanSensitiveData = async () => {
+    const scanDocument = documentRef.current;
+    if (!scanDocument || scanningRef.current) return;
+    const scanGeneration = scanGenerationRef.current + 1;
+    scanGenerationRef.current = scanGeneration;
+    scanningRef.current = true;
+    setScanning(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const [{ detectPii }, { extractPageText, findingToBlock }] =
+        await Promise.all([
+          import("@/lib/pii/detector"),
+          import("@/lib/pii/pdf-text"),
+        ]);
+      const suggestions: RedactionBlock[] = [];
+      let modelAvailable = true;
+      let pagesWithoutText = 0;
+
+      for (
+        let pageIndex = 0;
+        pageIndex < scanDocument.numPages &&
+        blocksRef.current.length + suggestions.length < MAX_BLOCKS;
+        pageIndex += 1
+      ) {
+        if (
+          scanGenerationRef.current !== scanGeneration ||
+          documentRef.current !== scanDocument
+        ) {
+          return;
+        }
+        setScanProgress(
+          `Scanning page ${pageIndex + 1} of ${scanDocument.numPages} on this device…`,
+        );
+        const page = await extractPageText(scanDocument, pageIndex);
+        if (!page.text.trim()) {
+          pagesWithoutText += 1;
+          continue;
+        }
+        const result = await detectPii(page.text);
+        if (
+          scanGenerationRef.current !== scanGeneration ||
+          documentRef.current !== scanDocument
+        ) {
+          return;
+        }
+        modelAvailable &&= result.modelAvailable;
+        for (const finding of result.findings) {
+          const block = findingToBlock(page, finding);
+          if (block) suggestions.push(block);
+        }
+      }
+
+      if (
+        scanGenerationRef.current !== scanGeneration ||
+        documentRef.current !== scanDocument
+      ) {
+        return;
+      }
+      const merged = mergeSuggestionBlocks(
+        blocksRef.current,
+        suggestions,
+        MAX_BLOCKS,
+      );
+      const unique = merged.added;
+
+      if (unique.length) {
+        commitBlocks(merged.blocks);
+        setSelectedBlockId(unique[0].id);
+      }
+
+      const fallback = modelAvailable
+        ? ""
+        : " The contextual model was unavailable, so only structured patterns were used.";
+      const scans = pagesWithoutText
+        ? ` ${pagesWithoutText} page${pagesWithoutText === 1 ? " needs" : "s need"} manual area review because no searchable text was found.`
+        : "";
+      setNotice(
+        unique.length
+          ? `${unique.length} suggestion${unique.length === 1 ? "" : "s"} added to the review queue.${fallback}${scans}`
+          : `No new sensitive-data suggestions were found.${fallback}${scans}`,
+      );
+    } catch (caught) {
+      if (
+        scanGenerationRef.current !== scanGeneration ||
+        documentRef.current !== scanDocument
+      ) {
+        return;
+      }
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The document could not be scanned.",
+      );
+    } finally {
+      if (
+        scanGenerationRef.current === scanGeneration &&
+        documentRef.current === scanDocument
+      ) {
+        scanningRef.current = false;
+        setScanning(false);
+        setScanProgress(null);
+      }
+    }
+  };
+
+  useEffect(
+    () => () => {
+      scanGenerationRef.current += 1;
+      scanningRef.current = false;
+      const currentDocument = documentRef.current;
+      documentRef.current = null;
+      void currentDocument?.loadingTask.destroy();
+    },
+    [],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -253,7 +507,7 @@ export function PdfRedactor() {
   }, [redo, removeBlock, selectedBlockId, undo]);
 
   const applyRedactions = async () => {
-    if (!file || !blocks.length) return;
+    if (!file || !sourceFile || !blocks.length) return;
     setProcessing(true);
     setError(null);
     setNotice(null);
@@ -261,7 +515,7 @@ export function PdfRedactor() {
     try {
       const manifest = redactionManifestSchema.parse({ blocks });
       const formData = new FormData();
-      formData.append("file", file, file.name);
+      formData.append("file", file, outputFilename(sourceFile.name));
       formData.append("manifest", JSON.stringify(manifest));
 
       const response = await fetch("/api/redact", {
@@ -282,13 +536,13 @@ export function PdfRedactor() {
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement("a");
       anchor.href = url;
-      anchor.download = outputFilename(file.name);
+      anchor.download = outputFilename(sourceFile.name);
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
 
       setShowApplyDialog(false);
       setNotice(
-        `Secure copy created: ${outputFilename(file.name)}. Your original is unchanged.`,
+        `Secure copy created: ${outputFilename(sourceFile.name)}. Your original is unchanged.`,
       );
     } catch (caught) {
       setError(
@@ -302,9 +556,21 @@ export function PdfRedactor() {
     }
   };
 
-  if (!document || !file || loadState !== "ready") {
+  if (!document || !file || !sourceFile || loadState !== "ready") {
     return (
       <main className="upload-shell">
+        {isDraggingFile && (
+          <div className="global-drop-overlay" aria-live="assertive">
+            <div className="global-drop-message">
+              <span className="global-drop-icon" aria-hidden="true">
+                <UploadIcon />
+              </span>
+              <strong>Drop document to open</strong>
+              <span>Release anywhere in this window</span>
+            </div>
+          </div>
+        )}
+
         <header className="landing-header">
           <Link className="brand" href="/" aria-label="Redactotron home">
             <span className="brand-mark" aria-hidden="true">
@@ -320,7 +586,7 @@ export function PdfRedactor() {
 
         <section className="hero">
           <div className="hero-copy">
-            <p className="eyebrow">PDF REDACTION, DONE PROPERLY</p>
+            <p className="eyebrow">DOCUMENT REDACTION, DONE PROPERLY</p>
             <h1>
               Remove the text.
               <br />
@@ -339,47 +605,46 @@ export function PdfRedactor() {
             </div>
           </div>
 
-          <div
-            className={`upload-card ${isDraggingFile ? "dragging" : ""}`}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setIsDraggingFile(true);
-            }}
-            onDragLeave={() => setIsDraggingFile(false)}
-            onDrop={handleDrop}
-          >
+          <div className={`upload-card ${isDraggingFile ? "dragging" : ""}`}>
             <div className="upload-icon">
               <UploadIcon />
             </div>
             <p className="eyebrow">START WITH A DOCUMENT</p>
             <h2>
               {loadState === "loading"
-                ? "Opening your PDF…"
-                : "Drop a PDF right here"}
+                ? "Preparing your document…"
+                : "Drop a document right here"}
             </h2>
             <p>or choose one from your computer</p>
             <label
               className={`button button-primary upload-button ${
                 loadState === "loading" ? "disabled" : ""
               }`}
-              aria-disabled={loadState === "loading"}
             >
               <FileIcon />
-              Choose PDF
+              Choose document
               <input
                 id="pdf-file-input"
                 type="file"
-                accept="application/pdf,.pdf"
-                className="file-input"
-                aria-label="PDF file"
+                className="native-file-fallback"
+                aria-label="Choose document"
                 disabled={loadState === "loading"}
+                onClick={() => {
+                  setError(null);
+                  setPickerStatus("Opening your computer’s file picker…");
+                }}
                 onChange={handleFileInput}
               />
             </label>
+            {pickerStatus && (
+              <p className="picker-status" role="status">
+                {pickerStatus}
+              </p>
+            )}
             <div className="upload-limit">
-              <span>PDF only</span>
+              <span>{SUPPORTED_DOCUMENT_LABEL}</span>
               <span>Up to 4 MB</span>
-              <span>100 pages</span>
+              <span>PDF output</span>
             </div>
             {error && (
               <div className="inline-alert error" role="alert">
@@ -416,16 +681,19 @@ export function PdfRedactor() {
         <div className="file-summary">
           <FileIcon />
           <div>
-            <strong title={file.name}>{file.name}</strong>
+            <strong title={sourceFile.name}>{sourceFile.name}</strong>
             <span>
               {document.numPages} page{document.numPages === 1 ? "" : "s"} ·{" "}
-              {formatBytes(file.size)}
+              {formatBytes(sourceFile.size)}
+              {documentKind && documentKind !== "pdf"
+                ? ` · ${documentKind === "image" ? "OCR import" : "converted"}`
+                : ""}
             </span>
           </div>
           <button
             type="button"
             className="icon-button"
-            aria-label="Close PDF"
+            aria-label="Close document"
             onClick={() => void resetDocument()}
           >
             <CloseIcon />
@@ -471,6 +739,16 @@ export function PdfRedactor() {
         <div className="toolbar-spacer" />
 
         <div className="tool-group compact-tools">
+          <button
+            type="button"
+            className="tool-button scan-button"
+            disabled={scanning}
+            onClick={() => void scanSensitiveData()}
+          >
+            <SparkIcon />
+            {scanning ? "Scanning…" : "Find sensitive data"}
+          </button>
+          <span className="toolbar-divider" />
           <button
             type="button"
             className="icon-button"
@@ -550,6 +828,14 @@ export function PdfRedactor() {
               {notice}
             </div>
           )}
+          {scanProgress && (
+            <div className="workspace-notice info" role="status">
+              <span className="scan-progress">
+                <SparkIcon />
+                {scanProgress}
+              </span>
+            </div>
+          )}
           {error && (
             <div className="workspace-notice error" role="alert">
               {error}
@@ -627,10 +913,16 @@ export function PdfRedactor() {
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span>
-                        <strong>REDACTED</strong>
+                        <strong>
+                          {block.suggestion
+                            ? block.suggestion.category.replaceAll("_", " ")
+                            : "REDACTED"}
+                        </strong>
                         <small>
-                          Page {block.pageIndex + 1} · {block.rects.length} line
-                          {block.rects.length === 1 ? "" : "s"}
+                          Page {block.pageIndex + 1} ·{" "}
+                          {block.suggestion
+                            ? `${Math.round(block.suggestion.confidence * 100)}% suggestion`
+                            : `${block.rects.length} line${block.rects.length === 1 ? "" : "s"}`}
                         </small>
                       </span>
                     </button>
@@ -674,8 +966,8 @@ export function PdfRedactor() {
             <div>
               <strong>Real content removal</strong>
               <p>
-                Export deletes the selected PDF objects and inserts new,
-                searchable text.
+                Export deletes content inside each selected area and inserts
+                new, searchable text.
               </p>
             </div>
           </div>

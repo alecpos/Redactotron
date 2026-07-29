@@ -1,9 +1,17 @@
 # Redactotron
 
-A focused PDF redaction editor built with Next.js, PDF.js, Flask, and
-PyMuPDF. Users can select text or draw a section, review and remove draft
-blocks, then export a new PDF in which the original content is physically
-removed and replaced with searchable `REDACTED` text.
+A focused document redaction editor built with Next.js, PDF.js, PDF-Lib,
+Mammoth, Tesseract.js, Flask, and PyMuPDF. Users can import PDF, DOCX, TXT,
+PNG, or JPEG files; select text or draw a section; review and remove draft
+blocks; then export a searchable PDF in which the selected content is
+physically removed and replaced with `REDACTED`.
+
+The editor can also suggest sensitive data with a hybrid detector. Email
+addresses, US SSNs, phone numbers, payment cards, IBANs, and context-labeled
+account numbers use deterministic validation. Names and locations use a
+quantized BERT token-classification model through Transformers.js. Inference
+runs in the browser; suggestions remain removable drafts until the user
+confirms the export.
 
 ## Run locally
 
@@ -32,12 +40,36 @@ Run checks:
 npm run typecheck
 npm run lint
 npm run build
+npm run test:pii
 source .venv/bin/activate && npm run test:engine
 ```
 
+The first sensitive-data scan downloads the pinned 28.7 MB INT8 model plus
+the runtime assets required by the browser's available execution provider.
+Transformers.js stores model files in the browser cache, so later scans can
+reuse them, but this is not a fully offline first-run experience. No PDF text
+is sent to an inference service. The model is English-focused and its output
+is advisory: evaluate it against representative documents before broadening
+entity types or lowering confidence thresholds.
+
 ## How the redaction works
 
-The browser uses PDF.js for rendering and its selectable text layer. Each
+Every supported source is normalized in the browser into a working PDF:
+
+- PDF files are inspected page-by-page. Existing searchable text is preserved;
+  image-only pages are rendered and receive a positioned, invisible English OCR
+  text layer locally in the browser.
+- DOCX files are converted into structured, searchable text with headings,
+  paragraphs, lists, and table rows. Complex Word layout and embedded images
+  are not preserved in the current importer.
+- TXT files are typeset into a searchable PDF.
+- PNG and JPEG files retain their source image and receive a positioned,
+  invisible English OCR text layer. The OCR engine and language model are
+  downloaded and cached by the browser; document pixels are not sent to an OCR
+  service.
+
+The original source file is retained only for its name and never overwritten.
+PDF.js renders the working PDF and exposes its selectable text layer. Each
 pointer action becomes one logical block containing one or more line
 rectangles. Coordinates are saved in PDF user space, not screen pixels.
 
@@ -51,14 +83,22 @@ On Apply, `/api/redact.py`:
    unreferenced objects;
 6. reopens the output and verifies both content removal and replacement text.
 
-The original file is never overwritten.
+The original file is never overwritten, and every output is a PDF.
 
 ## Production notes
 
-- The direct request is intentionally limited to 4 MB because Vercel
+- Source files and the normalized working PDF are intentionally limited to
+  4 MB because Vercel
   Functions have a 4.5 MB request body limit. For larger PDFs, upload directly
   to Vercel Private Blob and send only the private pathname, hash, and manifest
   to the Python function.
+- Browser OCR currently uses English recognition. Add an explicit language
+  picker and locally hosted trained-data files before claiming multilingual
+  OCR support.
+- DOCX import prioritizes searchable, reviewable content over Word layout
+  fidelity. A layout-faithful SaaS workflow should use an isolated conversion
+  service such as a containerized LibreOffice/Gotenberg worker, not a Vercel
+  request function.
 - PyMuPDF is offered under AGPL and commercial licenses. A closed-source SaaS
   should obtain an Artifex commercial license or use a commercial PDF SDK.
 - The ATS-preserving mode retains legitimate text outside marked regions.
@@ -72,6 +112,12 @@ The original file is never overwritten.
 - [Adobe: redact and sanitize PDFs](https://helpx.adobe.com/acrobat/desktop/protect-documents/redact-pdfs/redacting-sanitizing.html)
 - [PyMuPDF redaction APIs](https://pymupdf.readthedocs.io/en/latest/page.html)
 - [PDF.js API](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFPageProxy.html)
+- [ONNX Runtime Web browser inference](https://onnxruntime.ai/docs/tutorials/web/)
+- [Transformers.js pipelines](https://huggingface.co/docs/transformers.js/pipelines)
+- [BERT small PII detector model card](https://huggingface.co/onnx-community/bert-small-pii-detection-ONNX)
+- [PDF-Lib](https://github.com/Hopding/pdf-lib)
+- [Mammoth browser API](https://github.com/mwilliamson/mammoth.js)
+- [Tesseract.js API](https://github.com/naptha/tesseract.js/blob/master/docs/api.md)
 - [Vercel Python runtime](https://vercel.com/docs/functions/runtimes/python)
 - [Vercel request size and direct-upload guidance](https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions)
 - [OWASP file upload guidance](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)

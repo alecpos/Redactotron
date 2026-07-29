@@ -10,8 +10,14 @@ export type RedactionBlock = {
   pageIndex: number;
   rects: PdfRect[];
   labelRectIndex: number;
+  sourceFontSize: number | null;
   replacement: "REDACTED";
   appearance: "text-replacement";
+  suggestion?: {
+    category: string;
+    confidence: number;
+    source: "recognizer" | "model";
+  };
 };
 
 export type ToolMode = "text" | "area";

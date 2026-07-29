@@ -30,6 +30,8 @@ class PreparedBlock:
     page_index: int
     rects: tuple[pymupdf.Rect, ...]
     label_rect_index: int
+    label_rotation: int
+    source_font_size: float | None
 
 
 def _normalized_text(value: str) -> str:
@@ -121,23 +123,222 @@ def _prepare_blocks(
                 )
             converted.append(mupdf_rect)
 
+        label_rect = converted[label_rect_index]
+        label_rotation = _replacement_rotation(page, label_rect)
         prepared.append(
             PreparedBlock(
                 page_index=page_index,
                 rects=tuple(converted),
                 label_rect_index=label_rect_index,
+                label_rotation=label_rotation,
+                source_font_size=_source_font_size(
+                    page,
+                    tuple(converted),
+                    label_rect,
+                    label_rotation,
+                ),
             )
         )
 
     return prepared
 
 
-def _replacement_font_size(rect: pymupdf.Rect) -> float:
+def _rects_connect(first: pymupdf.Rect, second: pymupdf.Rect) -> bool:
+    """Treat overlapping or edge-touching rectangles as connected."""
+    return (
+        first.x0 <= second.x1
+        and second.x0 <= first.x1
+        and first.y0 <= second.y1
+        and second.y0 <= first.y1
+    )
+
+
+def _blocks_connect(first: PreparedBlock, second: PreparedBlock) -> bool:
+    return first.page_index == second.page_index and any(
+        _rects_connect(first_rect, second_rect)
+        for first_rect in first.rects
+        for second_rect in second.rects
+    )
+
+
+def _merge_connected_blocks(
+    document: pymupdf.Document,
+    blocks: list[PreparedBlock],
+) -> list[PreparedBlock]:
+    """Merge transitive connected components only for the exported document."""
+    merged: list[PreparedBlock] = []
+    unvisited = set(range(len(blocks)))
+    bounds = [
+        pymupdf.Rect(
+            min(rect.x0 for rect in block.rects),
+            min(rect.y0 for rect in block.rects),
+            max(rect.x1 for rect in block.rects),
+            max(rect.y1 for rect in block.rects),
+        )
+        for block in blocks
+    ]
+
+    while unvisited:
+        first_index = min(unvisited)
+        unvisited.remove(first_index)
+        component = [first_index]
+        pending = [first_index]
+
+        while pending:
+            current_index = pending.pop()
+            connected = [
+                candidate_index
+                for candidate_index in unvisited
+                if (
+                    _rects_connect(
+                        bounds[current_index],
+                        bounds[candidate_index],
+                    )
+                    and _blocks_connect(
+                        blocks[current_index],
+                        blocks[candidate_index],
+                    )
+                )
+            ]
+            for candidate_index in connected:
+                unvisited.remove(candidate_index)
+                component.append(candidate_index)
+                pending.append(candidate_index)
+
+        if len(component) == 1:
+            merged.append(blocks[first_index])
+            continue
+
+        component.sort()
+        page_index = blocks[first_index].page_index
+        rects = tuple(
+            rect
+            for block_index in component
+            for rect in blocks[block_index].rects
+        )
+        label_rect_index = max(
+            range(len(rects)),
+            key=lambda index: rects[index].width * rects[index].height,
+        )
+        label_rect = rects[label_rect_index]
+        label_rotation = _replacement_rotation(
+            document[page_index],
+            label_rect,
+        )
+        merged.append(
+            PreparedBlock(
+                page_index=page_index,
+                rects=rects,
+                label_rect_index=label_rect_index,
+                label_rotation=label_rotation,
+                source_font_size=_source_font_size(
+                    document[page_index],
+                    rects,
+                    label_rect,
+                    label_rotation,
+                ),
+            )
+        )
+
+    return merged
+
+
+def _replacement_rotation(page: pymupdf.Page, rect: pymupdf.Rect) -> int:
+    """Match the dominant text direction under a label, or the block's long axis."""
+    best_rotation: int | None = None
+    best_overlap = 0.0
+
+    for text_block in page.get_text("dict").get("blocks", []):
+        for line in text_block.get("lines", []):
+            line_rect = pymupdf.Rect(line["bbox"])
+            overlap = line_rect & rect
+            if overlap.is_empty:
+                continue
+
+            overlap_area = overlap.width * overlap.height
+            if overlap_area <= best_overlap:
+                continue
+
+            direction_x, direction_y = line["dir"]
+            if abs(direction_x) >= abs(direction_y):
+                rotation = 0 if direction_x >= 0 else 180
+            else:
+                # PyMuPDF's top-left coordinate system reports rotate=90 text as
+                # advancing upward, and rotate=270 text as advancing downward.
+                rotation = 90 if direction_y < 0 else 270
+
+            best_rotation = rotation
+            best_overlap = overlap_area
+
+    if best_rotation is not None:
+        return best_rotation
+    return 90 if rect.height > rect.width else 0
+
+
+def _source_font_size(
+    page: pymupdf.Page,
+    rects: tuple[pymupdf.Rect, ...],
+    label_rect: pymupdf.Rect,
+    rotation: int,
+) -> float | None:
+    """Choose the dominant covered source size for the replacement label."""
+    scores: dict[float, float] = {}
+    for text_block in page.get_text("dict").get("blocks", []):
+        for line in text_block.get("lines", []):
+            for span in line.get("spans", []):
+                size = span.get("size")
+                bbox = span.get("bbox")
+                if (
+                    isinstance(size, bool)
+                    or not isinstance(size, (int, float))
+                    or not bbox
+                ):
+                    continue
+
+                span_rect = pymupdf.Rect(bbox)
+                overlap_area = 0.0
+                for rect in rects:
+                    overlap = span_rect & rect
+                    if not overlap.is_empty:
+                        overlap_area += overlap.width * overlap.height
+                if overlap_area <= 0:
+                    continue
+
+                normalized_size = round(float(size), 3)
+                scores[normalized_size] = (
+                    scores.get(normalized_size, 0.0) + overlap_area
+                )
+
+    ranked_sizes = sorted(
+        scores.items(), key=lambda item: item[1], reverse=True
+    )
+    available_height = (
+        label_rect.width
+        if rotation in (90, 270)
+        else label_rect.height
+    )
+    for font_size, _score in ranked_sizes:
+        if font_size <= available_height:
+            return font_size
+    return None
+
+
+def _replacement_font_size(
+    rect: pymupdf.Rect,
+    rotation: int,
+    source_font_size: float | None,
+) -> float:
+    if source_font_size is not None:
+        return source_font_size
+
     unit_width = pymupdf.get_text_length(
         REPLACEMENT, fontname="hebo", fontsize=1
     )
-    width_limited = rect.width * 0.88 / unit_width
-    height_limited = rect.height / 1.25
+    vertical = rotation in (90, 270)
+    available_width = rect.height if vertical else rect.width
+    available_height = rect.width if vertical else rect.height
+    width_limited = available_width * 0.88 / unit_width
+    height_limited = available_height / 1.25
     size = min(10.0, width_limited, height_limited)
     if size < 4:
         raise RedactionError(
@@ -145,6 +346,40 @@ def _replacement_font_size(rect: pymupdf.Rect) -> float:
             "Enlarge that selection and try again."
         )
     return size
+
+
+def _replacement_textbox_layout(
+    rect: pymupdf.Rect,
+    rotation: int,
+    font_size: float,
+) -> tuple[pymupdf.Rect, tuple[pymupdf.Point, pymupdf.Matrix] | None]:
+    """Compress only the writing axis when the source-sized label is wider."""
+    vertical = rotation in (90, 270)
+    available_width = rect.height if vertical else rect.width
+    natural_width = pymupdf.get_text_length(
+        REPLACEMENT, fontname="hebo", fontsize=font_size
+    )
+    writing_scale = min(1.0, available_width * 0.9 / natural_width)
+    if writing_scale >= 1:
+        return rect, None
+
+    if vertical:
+        textbox = pymupdf.Rect(
+            rect.x0,
+            rect.y0,
+            rect.x1,
+            rect.y0 + rect.height / writing_scale,
+        )
+        matrix = pymupdf.Matrix(1, writing_scale)
+    else:
+        textbox = pymupdf.Rect(
+            rect.x0,
+            rect.y0,
+            rect.x0 + rect.width / writing_scale,
+            rect.y1,
+        )
+        matrix = pymupdf.Matrix(writing_scale, 1)
+    return textbox, (rect.top_left, matrix)
 
 
 def _remove_existing_annotations(document: pymupdf.Document) -> None:
@@ -217,7 +452,10 @@ def redact_pdf_bytes(source: bytes, manifest: dict[str, Any]) -> bytes:
 
     try:
         _assert_supported(document)
-        prepared = _prepare_blocks(document, manifest)
+        prepared = _merge_connected_blocks(
+            document,
+            _prepare_blocks(document, manifest),
+        )
         original_text = "\n".join(page.get_text("text") for page in document)
         original_redacted_count = original_text.count(REPLACEMENT)
         selected_text = [
@@ -248,15 +486,27 @@ def redact_pdf_bytes(source: bytes, manifest: dict[str, Any]) -> bytes:
         for block in prepared:
             page = document[block.page_index]
             label_rect = block.rects[block.label_rect_index]
-            font_size = _replacement_font_size(label_rect)
-            remaining = page.insert_textbox(
+            font_size = _replacement_font_size(
                 label_rect,
+                block.label_rotation,
+                block.source_font_size,
+            )
+            textbox, morph = _replacement_textbox_layout(
+                label_rect,
+                block.label_rotation,
+                font_size,
+            )
+            remaining = page.insert_textbox(
+                textbox,
                 REPLACEMENT,
                 fontname="hebo",
                 fontsize=font_size,
                 align=pymupdf.TEXT_ALIGN_CENTER,
                 color=(0, 0, 0),
                 overlay=True,
+                rotate=block.label_rotation,
+                lineheight=1,
+                morph=morph,
             )
             if remaining < 0:
                 raise RedactionError(
