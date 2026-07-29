@@ -16,15 +16,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Use Vercel's local runtime so Next.js and the Python function share one
-origin:
+Start Next.js and the local Python redaction service together:
 
 ```bash
-npx vercel dev
+npm run dev
 ```
 
-Open the URL printed by Vercel. The first run asks you to link or create a
-Vercel project.
+Open `http://localhost:3000`. In development, Next.js proxies
+`/api/redact` to the local Flask process. On Vercel, `api/redact.py` is
+served directly as the Python Function at that path.
 
 Run checks:
 

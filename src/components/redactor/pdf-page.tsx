@@ -36,6 +36,7 @@ type PdfPageProps = {
   onAddBlock: (block: RedactionBlock) => void;
   onRemoveBlock: (id: string) => void;
   onSelectBlock: (id: string | null) => void;
+  onTextLayerStatus: (pageIndex: number, hasText: boolean) => void;
 };
 
 function normalizePdfRect(points: number[]): PdfRect {
@@ -60,6 +61,15 @@ function toScreenRect(
     width: Math.abs(second[0] - first[0]),
     height: Math.abs(second[1] - first[1]),
   };
+}
+
+function replacementFontSize(rect: ScreenRect) {
+  // Helvetica Bold "REDACTED" is roughly 5.7 em wide. Keep the label inside
+  // the user's exact rectangle instead of expanding into neighboring text.
+  return Math.max(
+    4,
+    Math.min(10, (rect.width * 0.9) / 5.7, rect.height / 1.25),
+  );
 }
 
 function mergeLineRects(rects: DOMRect[]): DOMRect[] {
@@ -112,12 +122,16 @@ export function PdfPage({
   onAddBlock,
   onRemoveBlock,
   onSelectBlock,
+  onTextLayerStatus,
 }: PdfPageProps) {
   const pageRootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<PageViewport | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [hasSelectableText, setHasSelectableText] = useState<boolean | null>(
+    null,
+  );
   const [dragStart, setDragStart] = useState<{
     x: number;
     y: number;
@@ -170,6 +184,11 @@ export function PdfPage({
       });
 
       const textContent = await page.getTextContent();
+      const nextHasSelectableText = textContent.items.some(
+        (item) => "str" in item && item.str.trim().length > 0,
+      );
+      setHasSelectableText(nextHasSelectableText);
+      onTextLayerStatus(pageIndex, nextHasSelectableText);
       textLayer = new TextLayer({
         textContentSource: textContent,
         container: textContainer,
@@ -195,7 +214,7 @@ export function PdfPage({
       renderTask?.cancel();
       textLayer?.cancel();
     };
-  }, [document, pageIndex, scale]);
+  }, [document, onTextLayerStatus, pageIndex, scale]);
 
   const createBlock = useCallback(
     (rects: PdfRect[]) => {
@@ -360,6 +379,12 @@ export function PdfPage({
         <canvas ref={canvasRef} className="pdf-canvas" />
         <div ref={textLayerRef} className="textLayer" />
 
+        {hasSelectableText === false && (
+          <div className="scan-page-warning" role="status">
+            No selectable text on this page. Draw a box to mark an area.
+          </div>
+        )}
+
         <div className="redaction-layer" aria-live="polite">
           {viewport &&
             blocks.flatMap((block) =>
@@ -379,7 +404,12 @@ export function PdfPage({
                   >
                     {isLabel && (
                       <>
-                        <span className="redaction-label">REDACTED</span>
+                        <span
+                          className="redaction-label"
+                          style={{ fontSize: replacementFontSize(screen) }}
+                        >
+                          REDACTED
+                        </span>
                         <button
                           type="button"
                           className="remove-mark"
@@ -398,7 +428,12 @@ export function PdfPage({
 
           {draftScreenRect && (
             <div className="redaction-mark drawing" style={draftScreenRect}>
-              <span className="redaction-label">REDACTED</span>
+              <span
+                className="redaction-label"
+                style={{ fontSize: replacementFontSize(draftScreenRect) }}
+              >
+                REDACTED
+              </span>
             </div>
           )}
         </div>

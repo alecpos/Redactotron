@@ -119,6 +119,12 @@ a:focus-visible {
   opacity: 0.45;
 }
 
+.button.disabled {
+  cursor: wait;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .button-primary {
   border-color: var(--ink);
   background: var(--acid);
@@ -344,18 +350,19 @@ a:focus-visible {
 }
 
 .upload-button {
+  position: relative;
   min-width: 172px;
+  overflow: hidden;
   margin-top: 26px;
 }
 
 .file-input {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .upload-limit {
@@ -642,6 +649,12 @@ kbd {
   color: #2f6c35;
 }
 
+.workspace-notice.info {
+  border: 1px solid #aab6c8;
+  background: #f0f5fc;
+  color: #344e70;
+}
+
 .workspace-notice .icon-button {
   width: 26px;
   height: 26px;
@@ -684,6 +697,7 @@ kbd {
   min-height: 520px;
   background: white;
   box-shadow: var(--shadow);
+  cursor: text;
 }
 
 .pdf-canvas {
@@ -714,6 +728,11 @@ kbd {
   white-space: pre;
 }
 
+.pdf-page:not(.area-mode) .textLayer,
+.pdf-page:not(.area-mode) .textLayer :is(span, br) {
+  cursor: text;
+}
+
 .textLayer span::selection {
   background: rgba(134, 169, 255, 0.48);
 }
@@ -736,6 +755,24 @@ kbd {
   pointer-events: none;
 }
 
+.scan-page-warning {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  left: 50%;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  border: 1px solid #be9c58;
+  border-radius: 6px;
+  background: rgba(255, 249, 220, 0.94);
+  padding: 7px 10px;
+  color: #73571d;
+  font-size: 10px;
+  font-weight: 720;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
 .redaction-mark {
   position: absolute;
   display: flex;
@@ -743,16 +780,10 @@ kbd {
   min-height: 2px;
   align-items: center;
   justify-content: center;
-  border: 1px dashed #d8432d;
-  background:
-    repeating-linear-gradient(
-      -45deg,
-      rgba(255, 101, 76, 0.22) 0,
-      rgba(255, 101, 76, 0.22) 5px,
-      rgba(255, 101, 76, 0.12) 5px,
-      rgba(255, 101, 76, 0.12) 10px
-    );
-  color: #9e2617;
+  overflow: visible;
+  border: 1px solid #151918;
+  background: #fff;
+  color: #151918;
   pointer-events: auto;
   transition:
     background 100ms ease,
@@ -761,21 +792,23 @@ kbd {
 
 .redaction-mark:hover,
 .redaction-mark.selected {
-  background-color: rgba(255, 101, 76, 0.32);
-  box-shadow: 0 0 0 2px rgba(216, 67, 45, 0.32);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(190, 229, 33, 0.82);
 }
 
 .redaction-mark.drawing {
-  border-style: solid;
+  border: 1px dashed #151918;
+  background: rgba(217, 255, 67, 0.38);
   pointer-events: none;
 }
 
 .redaction-label {
   overflow: hidden;
   padding: 0 3px;
-  font-size: clamp(7px, 0.8em, 11px);
+  color: #151918;
+  font-family: Helvetica, Arial, sans-serif;
   font-weight: 900;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   line-height: 1;
   text-overflow: clip;
   white-space: nowrap;
@@ -790,16 +823,16 @@ kbd {
   width: 26px;
   height: 26px;
   place-items: center;
-  border: 1px solid #943126;
+  border: 1px solid #151918;
   border-radius: 50%;
-  background: #fff9f7;
-  box-shadow: 1px 2px 5px rgba(91, 33, 25, 0.24);
-  color: #8e3025;
+  background: #fff;
+  box-shadow: 1px 2px 5px rgba(18, 22, 24, 0.2);
+  color: #151918;
   cursor: pointer;
 }
 
 .remove-mark:hover {
-  background: #ffddd7;
+  background: var(--acid);
 }
 
 .remove-mark svg {
@@ -886,8 +919,8 @@ kbd {
 
 .redaction-list li:hover,
 .redaction-list li.selected {
-  border-color: #d87363;
-  background: #fff5f2;
+  border-color: #151918;
+  background: #f7ffda;
 }
 
 .redaction-jump {
@@ -910,8 +943,8 @@ kbd {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: #ffe1da;
-  color: #9e3527;
+  background: var(--acid);
+  color: #151918;
   font-family: Georgia, serif;
   font-size: 9px;
   font-style: italic;

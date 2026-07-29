@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
   type ChangeEvent,
   type DragEvent,
@@ -50,7 +49,6 @@ function outputFilename(name: string) {
 }
 
 export function PdfRedactor() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -65,6 +63,9 @@ export function PdfRedactor() {
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [pageTextStatus, setPageTextStatus] = useState<
+    Record<number, boolean>
+  >({});
 
   const commitBlocks = useCallback(
     (next: RedactionBlock[]) => {
@@ -86,6 +87,7 @@ export function PdfRedactor() {
     setNotice(null);
     setLoadState("idle");
     setSelectedBlockId(null);
+    setPageTextStatus({});
   }, [document]);
 
   const loadFile = useCallback(
@@ -138,6 +140,7 @@ export function PdfRedactor() {
         setScale(1);
         setMode("text");
         setSelectedBlockId(null);
+        setPageTextStatus({});
         setLoadState("ready");
       } catch (caught) {
         setLoadState("error");
@@ -175,6 +178,23 @@ export function PdfRedactor() {
       setNotice(null);
     },
     [blocks, commitBlocks],
+  );
+
+  const handleTextLayerStatus = useCallback(
+    (pageIndex: number, hasText: boolean) => {
+      setPageTextStatus((current) => {
+        if (current[pageIndex] === hasText) return current;
+        return { ...current, [pageIndex]: hasText };
+      });
+
+      if (pageIndex === 0 && !hasText) {
+        setMode("area");
+        setNotice(
+          "No searchable text was detected. Draw area is active—drag a box over anything you want removed.",
+        );
+      }
+    },
+    [],
   );
 
   const removeBlock = useCallback(
@@ -338,23 +358,24 @@ export function PdfRedactor() {
                 : "Drop a PDF right here"}
             </h2>
             <p>or choose one from your computer</p>
-            <button
-              type="button"
-              className="button button-primary upload-button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loadState === "loading"}
+            <label
+              className={`button button-primary upload-button ${
+                loadState === "loading" ? "disabled" : ""
+              }`}
+              aria-disabled={loadState === "loading"}
             >
               <FileIcon />
               Choose PDF
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="file-input"
-              aria-label="PDF file"
-              onChange={handleFileInput}
-            />
+              <input
+                id="pdf-file-input"
+                type="file"
+                accept="application/pdf,.pdf"
+                className="file-input"
+                aria-label="PDF file"
+                disabled={loadState === "loading"}
+                onChange={handleFileInput}
+              />
+            </label>
             <div className="upload-limit">
               <span>PDF only</span>
               <span>Up to 4 MB</span>
@@ -505,8 +526,9 @@ export function PdfRedactor() {
             {mode === "text" ? (
               <>
                 <TextSelectIcon />
-                Highlight words or multiple lines. Each drag becomes one
-                removable block.
+                {pageTextStatus[0] === true
+                  ? "Text detected — click and drag across words. Each drag becomes one removable block."
+                  : "Loading the selectable text layer…"}
               </>
             ) : (
               <>
@@ -517,7 +539,14 @@ export function PdfRedactor() {
           </div>
 
           {notice && (
-            <div className="workspace-notice success" role="status">
+            <div
+              className={`workspace-notice ${
+                Object.values(pageTextStatus).some((hasText) => !hasText)
+                  ? "info"
+                  : "success"
+              }`}
+              role="status"
+            >
               {notice}
             </div>
           )}
@@ -549,6 +578,7 @@ export function PdfRedactor() {
                 onAddBlock={addBlock}
                 onRemoveBlock={removeBlock}
                 onSelectBlock={setSelectedBlockId}
+                onTextLayerStatus={handleTextLayerStatus}
               />
             ))}
           </div>

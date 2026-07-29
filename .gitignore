@@ -8,4 +8,5 @@ __pycache__
 .venv
 coverage
 test-output
+tmp
 public/pdf.worker.min.mjs
