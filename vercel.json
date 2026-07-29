@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/redact.py": {
+      "maxDuration": 60
+    }
+  }
+}
