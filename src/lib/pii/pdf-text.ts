@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
+import { createBrowserId } from "../browser-compat.ts";
 import type { PdfRect, RedactionBlock } from "../pdf/types.ts";
 import type {
   PageTextMap,
@@ -200,7 +201,7 @@ export function findingToBlock(
   );
 
   return {
-    id: crypto.randomUUID(),
+    id: createBrowserId(),
     pageIndex: page.pageIndex,
     rects,
     labelRectIndex,

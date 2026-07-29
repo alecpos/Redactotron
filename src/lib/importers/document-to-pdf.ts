@@ -31,6 +31,19 @@ export type ImportedDocument = {
 
 type ProgressCallback = (progress: ImportProgress) => void;
 
+function localOcrOptions(logger: (message: Tesseract.LoggerMessage) => void) {
+  return {
+    corePath: "/tesseract/core",
+    langPath: "/tesseract/lang",
+    workerPath: "/tesseract/worker.min.js",
+    workerBlobURL: true,
+    gzip: true,
+    legacyCore: false,
+    legacyLang: false,
+    logger,
+  } satisfies Partial<Tesseract.WorkerOptions>;
+}
+
 type TextBlock = {
   kind: "title" | "heading" | "body" | "list" | "table" | "space";
   text: string;
@@ -550,8 +563,10 @@ async function importPdf(file: File, onProgress: ProgressCallback) {
     const pdf = await pdfLib.PDFDocument.load(sourceBytes);
     const font = await pdf.embedFont(pdfLib.StandardFonts.Helvetica);
     let activePageNumber = 1;
-    const worker = await tesseract.createWorker("eng", undefined, {
-      logger: (message) => {
+    const worker = await tesseract.createWorker(
+      "eng",
+      undefined,
+      localOcrOptions((message) => {
         if (message.status === "recognizing text") {
           onProgress({
             message: `Reading scanned page ${activePageNumber} of ${
@@ -560,8 +575,8 @@ async function importPdf(file: File, onProgress: ProgressCallback) {
             progress: message.progress,
           });
         }
-      },
-    });
+      }),
+    );
     let pagesWithWords = 0;
 
     try {
@@ -678,16 +693,18 @@ async function importImage(file: File, onProgress: ProgressCallback) {
   });
 
   const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("eng", undefined, {
-    logger: (message) => {
+  const worker = await createWorker(
+    "eng",
+    undefined,
+    localOcrOptions((message) => {
       if (message.status === "recognizing text") {
         onProgress({
           message: `Reading image text… ${Math.round(message.progress * 100)}%`,
           progress: message.progress,
         });
       }
-    },
-  });
+    }),
+  );
 
   try {
     const result = await worker.recognize(file, {}, {

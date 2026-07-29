@@ -3,20 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "dev:web": "next dev",
-    "dev:api": ".venv/bin/python -m flask --app api.redact:app run --port 5328",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "postinstall": "node scripts/copy-pdf-worker.mjs",
+    "postinstall": "node scripts/vendor-browser-assets.mjs",
     "test:pii": "node --experimental-strip-types --test tests/pii-recognizers.test.mts",
-    "test:engine": "python3 -m unittest discover -s tests -p 'test_*.py'"
+    "test:local-redaction": "node --experimental-strip-types --test tests/local-redaction-engine.test.mts",
+    "test:network-boundary": "node --experimental-strip-types --test tests/network-boundary.test.mts"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
     "mammoth": "^1.12.0",
+    "mupdf": "1.28.0",
     "next": "16.2.11",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "6.2.108",
@@ -29,6 +29,7 @@
     "@types/node": "24.10.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "esbuild": "0.25.9",
     "eslint": "9.39.2",
     "eslint-config-next": "16.2.11",
     "typescript": "5.9.3"

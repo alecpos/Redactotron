@@ -39,11 +39,15 @@ import type {
 import { redactionManifestSchema } from "@/lib/pdf/redaction-schema";
 import { mergeSuggestionBlocks } from "@/lib/pii/suggestions";
 
-const MAX_FILE_BYTES = 4_000_000;
 const MAX_PAGES = 100;
 const MAX_BLOCKS = 200;
 
 type LoadState = "idle" | "loading" | "ready" | "error";
+
+type ReadyDownload = {
+  filename: string;
+  url: string;
+};
 
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
@@ -82,16 +86,29 @@ export function PdfRedactor() {
   const documentRef = useRef<PDFDocumentProxy | null>(null);
   const scanGenerationRef = useRef(0);
   const scanningRef = useRef(false);
+  const downloadUrlRef = useRef<string | null>(null);
   const [pickerStatus, setPickerStatus] = useState<string | null>(null);
+  const [readyDownload, setReadyDownload] = useState<ReadyDownload | null>(
+    null,
+  );
+
+  const clearReadyDownload = useCallback(() => {
+    if (downloadUrlRef.current) {
+      URL.revokeObjectURL(downloadUrlRef.current);
+      downloadUrlRef.current = null;
+    }
+    setReadyDownload(null);
+  }, []);
 
   const commitBlocks = useCallback(
     (next: RedactionBlock[]) => {
+      clearReadyDownload();
       setPast((history) => [...history.slice(-49), blocksRef.current]);
       blocksRef.current = next;
       setBlocks(next);
       setFuture([]);
     },
-    [],
+    [clearReadyDownload],
   );
 
   const resetDocument = useCallback(async () => {
@@ -116,7 +133,18 @@ export function PdfRedactor() {
     setPageTextStatus({});
     setScanning(false);
     setScanProgress(null);
-  }, []);
+    clearReadyDownload();
+  }, [clearReadyDownload]);
+
+  useEffect(
+    () => () => {
+      if (downloadUrlRef.current) {
+        URL.revokeObjectURL(downloadUrlRef.current);
+        downloadUrlRef.current = null;
+      }
+    },
+    [],
+  );
 
   const loadFile = useCallback(
     async (nextFile: File) => {
@@ -128,22 +156,11 @@ export function PdfRedactor() {
       setLoadState("loading");
 
       try {
-        if (nextFile.size > MAX_FILE_BYTES) {
-          throw new Error(
-            `Documents are limited to ${formatBytes(MAX_FILE_BYTES)} in this version.`,
-          );
-        }
-
         const imported = await importDocumentAsPdf(
           nextFile,
           ({ message }) => setPickerStatus(message),
         );
         const workingFile = imported.pdfFile;
-        if (workingFile.size > MAX_FILE_BYTES) {
-          throw new Error(
-            `The searchable PDF is larger than ${formatBytes(MAX_FILE_BYTES)}. Use a smaller source file.`,
-          );
-        }
 
         const signature = await workingFile.slice(0, 5).text();
         if (signature !== "%PDF-") {
@@ -340,24 +357,26 @@ export function PdfRedactor() {
   );
 
   const undo = useCallback(() => {
-    const previous = past.at(-1);
+    const previous = past[past.length - 1];
     if (!previous) return;
+    clearReadyDownload();
     setFuture((history) => [blocksRef.current, ...history].slice(0, 50));
     blocksRef.current = previous;
     setBlocks(previous);
     setPast((history) => history.slice(0, -1));
     setSelectedBlockId(null);
-  }, [past]);
+  }, [clearReadyDownload, past]);
 
   const redo = useCallback(() => {
     const next = future[0];
     if (!next) return;
+    clearReadyDownload();
     setPast((history) => [...history, blocksRef.current].slice(-50));
     blocksRef.current = next;
     setBlocks(next);
     setFuture((history) => history.slice(1));
     setSelectedBlockId(null);
-  }, [future]);
+  }, [clearReadyDownload, future]);
 
   const scanSensitiveData = async () => {
     const scanDocument = documentRef.current;
@@ -514,35 +533,31 @@ export function PdfRedactor() {
 
     try {
       const manifest = redactionManifestSchema.parse({ blocks });
-      const formData = new FormData();
-      formData.append("file", file, outputFilename(sourceFile.name));
-      formData.append("manifest", JSON.stringify(manifest));
-
-      const response = await fetch("/api/redact", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const payload = (await response
-          .json()
-          .catch(() => null)) as { error?: string } | null;
-        throw new Error(
-          payload?.error || `Redaction failed (${response.status}).`,
-        );
-      }
-
-      const blob = await response.blob();
+      const { createLocalRedactedPdf } = await import(
+        "@/lib/pdf/local-redaction"
+      );
+      const output = await createLocalRedactedPdf(
+        await file.arrayBuffer(),
+        manifest.blocks,
+      );
+      const blob = new Blob([output], { type: "application/pdf" });
+      clearReadyDownload();
       const url = URL.createObjectURL(blob);
+      const filename = outputFilename(sourceFile.name);
+      downloadUrlRef.current = url;
+      setReadyDownload({ filename, url });
       const anchor = window.document.createElement("a");
       anchor.href = url;
-      anchor.download = outputFilename(sourceFile.name);
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      anchor.download = filename;
+      anchor.rel = "noopener";
+      anchor.hidden = true;
+      window.document.body.appendChild(anchor);
+      if (typeof anchor.click === "function") anchor.click();
+      window.setTimeout(() => anchor.remove(), 0);
 
       setShowApplyDialog(false);
       setNotice(
-        `Secure copy created: ${outputFilename(sourceFile.name)}. Your original is unchanged.`,
+        `Secure copy created entirely on this device: ${filename}. Your original is unchanged.`,
       );
     } catch (caught) {
       setError(
@@ -580,7 +595,7 @@ export function PdfRedactor() {
           </Link>
           <div className="privacy-chip">
             <ShieldIcon />
-            Permanent, not painted over
+            Files never leave this device
           </div>
         </header>
 
@@ -594,7 +609,7 @@ export function PdfRedactor() {
             </h1>
             <p className="hero-subtitle">
               Mark sensitive words or whole sections, review every block, then
-              create a clean copy with searchable replacement text.
+              create a clean copy locally with searchable replacement text.
             </p>
             <div className="trust-row">
               <span><b>01</b> Select</span>
@@ -643,7 +658,7 @@ export function PdfRedactor() {
             )}
             <div className="upload-limit">
               <span>{SUPPORTED_DOCUMENT_LABEL}</span>
-              <span>Up to 4 MB</span>
+              <span>Processed locally</span>
               <span>PDF output</span>
             </div>
             {error && (
@@ -816,7 +831,7 @@ export function PdfRedactor() {
             )}
           </div>
 
-          {notice && (
+          {(notice || readyDownload) && (
             <div
               className={`workspace-notice ${
                 Object.values(pageTextStatus).some((hasText) => !hasText)
@@ -825,7 +840,16 @@ export function PdfRedactor() {
               }`}
               role="status"
             >
-              {notice}
+              {notice && <span>{notice}</span>}
+              {readyDownload && (
+                <a
+                  className="download-ready-link"
+                  href={readyDownload.url}
+                  download={readyDownload.filename}
+                >
+                  Download secure PDF
+                </a>
+              )}
             </div>
           )}
           {scanProgress && (
@@ -915,7 +939,7 @@ export function PdfRedactor() {
                       <span>
                         <strong>
                           {block.suggestion
-                            ? block.suggestion.category.replaceAll("_", " ")
+                            ? block.suggestion.category.replace(/_/g, " ")
                             : "REDACTED"}
                         </strong>
                         <small>

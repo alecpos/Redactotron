@@ -5,5 +5,11 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "public/pdf.worker.min.mjs"]),
+  globalIgnores([
+    ".next/**",
+    "public/pdf.worker.min.mjs",
+    "public/models/**",
+    "public/runtime/**",
+    "public/tesseract/**",
+  ]),
 ]);

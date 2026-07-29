@@ -32,12 +32,31 @@ type NormalizedTokenResult = {
 async function getClassifier(): Promise<TokenClassifier> {
   if (!classifierPromise) {
     classifierPromise = import("@huggingface/transformers").then(
-      async ({ pipeline }) => {
+      async ({ env, pipeline }) => {
+        env.allowLocalModels = true;
+        env.allowRemoteModels = false;
+        env.localModelPath = "/models/";
+        const wasmBackend = env.backends.onnx.wasm;
+        if (!wasmBackend) {
+          throw new Error("Local browser inference is unavailable.");
+        }
+        wasmBackend.numThreads = 1;
+        wasmBackend.wasmPaths = {
+          mjs: new URL(
+            "/runtime/ort-wasm-simd-threaded.mjs",
+            window.location.origin,
+          ).href,
+          wasm: new URL(
+            "/runtime/ort-wasm-simd-threaded.wasm",
+            window.location.origin,
+          ).href,
+        };
         const classifier = await pipeline(
           "token-classification",
           MODEL_ID,
           {
             dtype: "q8",
+            device: "wasm",
             revision: MODEL_REVISION,
           },
         );
@@ -132,7 +151,7 @@ export function normalizeTokenResults(
     }
 
     cursor = end as number;
-    const previous = normalized.at(-1);
+    const previous = normalized[normalized.length - 1];
     const gap =
       previous && previous.end <= (start as number)
         ? text.slice(previous.end, start as number)

@@ -745,6 +745,21 @@ kbd {
   height: 26px;
 }
 
+.download-ready-link {
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 6px 9px;
+  color: inherit;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.download-ready-link:hover {
+  background: #fff;
+}
+
 .scan-progress {
   display: inline-flex;
   align-items: center;
