@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeFindings } from "../src/lib/pii/detector.ts";
+import {
+  expandRepeatedModelFindings,
+  mergeFindings,
+} from "../src/lib/pii/detector.ts";
 import {
   normalizeTokenResults,
   splitTextIntoChunks,
@@ -30,6 +33,35 @@ test("rejects invalid SSNs and credit-card checksums", () => {
     "Invalid SSNs 000-12-3456 and 666-12-3456; card 4111 1111 1111 1112.",
   );
   assert.deepEqual(findings, []);
+});
+
+test("recognizes tax-form identifiers and postal address components", () => {
+  const text =
+    "Employee address 927 PUTNAM AVE APT 3F BROOKLYN, NY 11221; EIN 20-5296423; masked SSN XXX-XX-6462.";
+  const findings = findStructuredPii(text);
+
+  assert.deepEqual(
+    findings.map((finding) => ({
+      category: finding.category,
+      value: text.slice(finding.start, finding.end),
+    })),
+    [
+      { category: "STREET_ADDRESS", value: "927 PUTNAM AVE" },
+      { category: "ADDRESS_UNIT", value: "APT 3F" },
+      { category: "CITY_STATE_ZIP", value: "BROOKLYN, NY 11221" },
+      { category: "US_TAX_ID", value: "20-5296423" },
+      { category: "US_SSN", value: "XXX-XX-6462" },
+    ],
+  );
+});
+
+test("does not classify ordinary tax-form amounts and dates as PII", () => {
+  assert.deepEqual(
+    findStructuredPii(
+      "Gross pay 5017.50, tax 54.30, ZIP alone 10001, page 42, date 07/29/2026.",
+    ),
+    [],
+  );
 });
 
 test("validates routing checksums and recognizes explicitly international phones", () => {
@@ -137,6 +169,25 @@ test("coalesces partial duplicate model findings from chunk overlap", () => {
   ]);
 });
 
+test("propagates a contextual finding to every exact repeated value", () => {
+  const text = "Jane Doe filed once. Jane Doe filed twice. Jane Doe.";
+  const firstStart = text.indexOf("Jane Doe");
+  const findings = expandRepeatedModelFindings(text, [
+    {
+      start: firstStart,
+      end: firstStart + "Jane Doe".length,
+      category: "PERSON",
+      confidence: 0.93,
+      source: "model",
+    },
+  ]);
+
+  assert.deepEqual(
+    findings.map(({ start, end }) => text.slice(start, end)),
+    ["Jane Doe", "Jane Doe", "Jane Doe"],
+  );
+});
+
 test("maps BERT wordpieces back to source offsets and joins BIO entities", () => {
   const text = "Jane Doe lives in Brooklyn.";
   const findings = normalizeTokenResults(text, [
@@ -198,6 +249,7 @@ function block(id: string, x0: number, suggestion = false): RedactionBlock {
     pageIndex: 0,
     rects: [{ x0, y0: 10, x1: x0 + 20, y1: 30 }],
     labelRectIndex: 0,
+    sourceFontSize: null,
     replacement: "REDACTED",
     appearance: "text-replacement",
     suggestion: suggestion

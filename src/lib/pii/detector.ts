@@ -47,12 +47,59 @@ export function mergeFindings(findings: PiiFinding[]) {
   return kept.sort((left, right) => left.start - right.start);
 }
 
+export function expandRepeatedModelFindings(
+  text: string,
+  findings: PiiFinding[],
+) {
+  const expanded = findings.map((finding) => ({ ...finding }));
+  const seen = new Set(
+    expanded.map(
+      (finding) =>
+        `${finding.start}:${finding.end}:${finding.category}:${finding.source}`,
+    ),
+  );
+
+  for (const finding of findings) {
+    if (finding.source !== "model") continue;
+    const value = text.slice(finding.start, finding.end);
+    if (
+      value.trim() !== value ||
+      value.length < 5 ||
+      !/[\p{L}\p{N}]/u.test(value)
+    ) {
+      continue;
+    }
+
+    let start = text.indexOf(value);
+    while (start >= 0) {
+      const end = start + value.length;
+      const before = start > 0 ? text[start - 1] : "";
+      const after = end < text.length ? text[end] : "";
+      const key = `${start}:${end}:${finding.category}:${finding.source}`;
+      if (
+        !/[\p{L}\p{N}]/u.test(before) &&
+        !/[\p{L}\p{N}]/u.test(after) &&
+        !seen.has(key)
+      ) {
+        expanded.push({ ...finding, start, end });
+        seen.add(key);
+      }
+      start = text.indexOf(value, start + 1);
+    }
+  }
+
+  return expanded;
+}
+
 export async function detectPii(text: string): Promise<PiiScanResult> {
   const structured = findStructuredPii(text);
   try {
     const contextual = await findContextualPii(text);
     return {
-      findings: mergeFindings([...structured, ...contextual]),
+      findings: mergeFindings([
+        ...structured,
+        ...expandRepeatedModelFindings(text, contextual),
+      ]),
       modelAvailable: true,
     };
   } catch (error) {

@@ -114,6 +114,33 @@ const recognizers: Recognizer[] = [
     validate: isValidSsn,
   },
   {
+    category: "US_SSN",
+    pattern: /\b(?:X{2,3}|\*{2,3})[- ]?(?:X{2}|\*{2})[- ]?\d{3,4}\b/giu,
+    confidence: 0.96,
+  },
+  {
+    category: "US_TAX_ID",
+    pattern: /(?<!\d)\d{2}-\d{7}(?!\d)/gu,
+    confidence: 0.98,
+  },
+  {
+    category: "STREET_ADDRESS",
+    pattern:
+      /\b\d{1,6}\s+(?:[A-Z0-9][A-Z0-9.'-]*\s+){1,5}(?:STREET|ST|AVENUE|AVE|ROAD|RD|BOULEVARD|BLVD|LANE|LN|DRIVE|DR|COURT|CT|PLACE|PL|PARKWAY|PKWY|HIGHWAY|HWY)\b/giu,
+    confidence: 0.97,
+  },
+  {
+    category: "ADDRESS_UNIT",
+    pattern: /\b(?:APT|APARTMENT|UNIT|SUITE|STE)\s+[#A-Z0-9-]{1,10}\b/giu,
+    confidence: 0.96,
+  },
+  {
+    category: "CITY_STATE_ZIP",
+    pattern:
+      /\b[A-Z][A-Z.'-]{1,20}(?:\s+[A-Z][A-Z.'-]{1,20}){0,2},?\s+(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\s+\d{5}(?:-\d{4})?\b/gu,
+    confidence: 0.97,
+  },
+  {
     category: "PHONE_NUMBER",
     pattern:
       /(?<![\d+])(?:(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}|\+(?:\d[\s().-]?){7,14}\d)(?![\s().-]?\d)/gu,
