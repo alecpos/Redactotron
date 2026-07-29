@@ -1,0 +1,136 @@
+/*
+ * Redactotron's three-mode contract mirrors the CareWay workflow:
+ * the root provider resolves Layout once; descendants consume variables or
+ * explicitly override data-layout for previews and component variants.
+ */
+
+.redactotron-theme,
+.redactotron-theme [data-layout="full"] {
+  --rt-viewport-width: 1210px;
+  --rt-screen-gutter: 48px;
+  --rt-section-gap: 48px;
+  --rt-control-gap: 12px;
+  --rt-content-max: 1114px;
+  --rt-sidebar-width: 300px;
+  --rt-control-height: 48px;
+  --rt-title-size: 32px;
+  --rt-body-size: 16px;
+  --rt-label-size: 14px;
+  min-height: 100vh;
+}
+
+.redactotron-theme[data-layout="medium"],
+.redactotron-theme [data-layout="medium"] {
+  --rt-viewport-width: 1024px;
+  --rt-screen-gutter: 32px;
+  --rt-section-gap: 40px;
+  --rt-control-gap: 10px;
+  --rt-content-max: 960px;
+  --rt-sidebar-width: 250px;
+  --rt-control-height: 44px;
+  --rt-title-size: 28px;
+  --rt-body-size: 15px;
+  --rt-label-size: 13px;
+}
+
+.redactotron-theme[data-layout="small"],
+.redactotron-theme [data-layout="small"] {
+  --rt-viewport-width: 390px;
+  --rt-screen-gutter: 16px;
+  --rt-section-gap: 32px;
+  --rt-control-gap: 8px;
+  --rt-content-max: 358px;
+  --rt-sidebar-width: 0px;
+  --rt-control-height: 44px;
+  --rt-title-size: 24px;
+  --rt-body-size: 14px;
+  --rt-label-size: 12px;
+}
+
+.redactotron-theme .button {
+  min-height: var(--rt-control-height);
+  padding-inline: calc(var(--rt-control-gap) * 1.5);
+  font-size: var(--rt-label-size);
+}
+
+.redactotron-theme .landing-header,
+.redactotron-theme .landing-footer {
+  width: min(1210px, calc(100% - (var(--rt-screen-gutter) * 2)));
+}
+
+.redactotron-theme .hero {
+  width: min(var(--rt-content-max), calc(100% - (var(--rt-screen-gutter) * 2)));
+  gap: var(--rt-section-gap);
+}
+
+.redactotron-theme .upload-card {
+  padding: var(--rt-section-gap) var(--rt-screen-gutter);
+}
+
+.redactotron-theme .editor-body {
+  grid-template-columns: minmax(0, 1fr) var(--rt-sidebar-width);
+}
+
+.redactotron-theme .document-workspace {
+  padding-inline: var(--rt-screen-gutter);
+}
+
+.redactotron-theme[data-layout="medium"] .hero {
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 0.9fr);
+}
+
+.redactotron-theme[data-layout="medium"] .upload-card {
+  min-height: 348px;
+}
+
+.redactotron-theme[data-layout="medium"] .redaction-sidebar {
+  padding-inline: 16px;
+}
+
+.redactotron-theme[data-layout="small"] .landing-header {
+  padding-block: 18px;
+}
+
+.redactotron-theme[data-layout="small"] .hero {
+  grid-template-columns: 1fr;
+  padding-block: 32px 56px;
+}
+
+.redactotron-theme[data-layout="small"] .hero-copy h1 {
+  font-size: 46px;
+}
+
+.redactotron-theme[data-layout="small"] .upload-card {
+  min-height: 324px;
+  padding: 24px;
+}
+
+.redactotron-theme[data-layout="small"] .editor-body {
+  grid-template-columns: 1fr;
+}
+
+.redactotron-theme[data-layout="small"] .redaction-sidebar {
+  border-top: 1px solid var(--line);
+  border-left: 0;
+  padding: 20px 16px;
+}
+
+.redactotron-theme[data-layout="small"] .redaction-list {
+  max-height: none;
+}
+
+.redactotron-theme[data-layout="full"] .upload-card {
+  min-height: 380px;
+}
+
+@media (max-width: 1024px) {
+  .redactotron-theme:not([data-layout]) {
+    --rt-viewport-width: 1024px;
+  }
+}
+
+@media (max-width: 390px) {
+  .redactotron-theme:not([data-layout]) {
+    --rt-viewport-width: 390px;
+  }
+}
