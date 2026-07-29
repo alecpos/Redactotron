@@ -14,6 +14,12 @@ import type {
 import type { PageViewport } from "pdfjs-dist/types/src/display/page_viewport";
 import { CloseIcon } from "@/components/icons";
 import { createBrowserId } from "@/lib/browser-compat";
+import {
+  describePreviewRenderFailure,
+  isPreviewCancellation,
+  previewOutputScale,
+  type PreviewRenderFailure,
+} from "@/lib/pdf/preview-render";
 import type {
   PdfRect,
   RedactionBlock,
@@ -248,8 +254,11 @@ export function PdfPage({
   const pageRootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
+  const renderQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [viewport, setViewport] = useState<PageViewport | null>(null);
-  const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderError, setRenderError] =
+    useState<PreviewRenderFailure | null>(null);
+  const [renderAttempt, setRenderAttempt] = useState(0);
   const [hasSelectableText, setHasSelectableText] = useState<boolean | null>(
     null,
   );
@@ -281,9 +290,19 @@ export function PdfPage({
       const textContainer = textLayerRef.current;
       if (!canvas || !textContainer) return;
 
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(nextViewport.width * pixelRatio);
-      canvas.height = Math.floor(nextViewport.height * pixelRatio);
+      const outputScale = previewOutputScale(
+        nextViewport.width,
+        nextViewport.height,
+        window.devicePixelRatio || 1,
+      );
+      canvas.width = Math.max(
+        1,
+        Math.floor(nextViewport.width * outputScale),
+      );
+      canvas.height = Math.max(
+        1,
+        Math.floor(nextViewport.height * outputScale),
+      );
       canvas.style.width = `${nextViewport.width}px`;
       canvas.style.height = `${nextViewport.height}px`;
 
@@ -299,9 +318,9 @@ export function PdfPage({
         canvasContext: context,
         viewport: nextViewport,
         transform:
-          pixelRatio === 1
+          outputScale === 1
             ? undefined
-            : [pixelRatio, 0, 0, pixelRatio, 0, 0],
+            : [outputScale, 0, 0, outputScale, 0, 0],
       });
 
       const textContent = await page.getTextContent();
@@ -323,11 +342,25 @@ export function PdfPage({
       }
     }
 
-    renderPage().catch((error: unknown) => {
-      if (cancelled || (error instanceof Error && error.name === "RenderingCancelledException")) {
+    const queuedRender = renderQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (!cancelled) await renderPage();
+      });
+    renderQueueRef.current = queuedRender.catch(() => undefined);
+
+    queuedRender.catch((error: unknown) => {
+      if (cancelled || isPreviewCancellation(error)) {
         return;
       }
-      setRenderError("This page could not be rendered.");
+      const failure = describePreviewRenderFailure(error);
+      console.error("PDF preview render failed", {
+        code: failure.code,
+        pageNumber: pageIndex + 1,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "",
+      });
+      setRenderError(failure);
     });
 
     return () => {
@@ -335,7 +368,13 @@ export function PdfPage({
       renderTask?.cancel();
       textLayer?.cancel();
     };
-  }, [document, onTextLayerStatus, pageIndex, scale]);
+  }, [
+    document,
+    onTextLayerStatus,
+    pageIndex,
+    renderAttempt,
+    scale,
+  ]);
 
   const createBlock = useCallback(
     (rects: PdfRect[], sourceFontSize: number | null) => {
@@ -611,7 +650,32 @@ export function PdfPage({
           )}
         </div>
 
-        {renderError && <div className="page-error">{renderError}</div>}
+        {renderError && (
+          <div className="page-error" role="alert">
+            <strong>This page could not be rendered.</strong>
+            <span>
+              {renderError.code === "PREVIEW_CANVAS_LIMIT"
+                ? "Your browser rejected the preview canvas."
+                : "The local PDF preview encountered an error."}
+            </span>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setRenderError(null);
+                setRenderAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Retry preview
+            </button>
+            <details>
+              <summary>Diagnostic details</summary>
+              <code>
+                {renderError.code}: {renderError.detail}
+              </code>
+            </details>
+          </div>
+        )}
       </div>
     </section>
   );
