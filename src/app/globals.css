@@ -910,7 +910,7 @@ kbd {
   min-width: 2px;
   min-height: 2px;
   overflow: visible;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .redaction-block::after {
@@ -985,6 +985,7 @@ kbd {
   box-shadow: 1px 2px 5px rgba(18, 22, 24, 0.2);
   color: #151918;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .remove-mark:hover {
